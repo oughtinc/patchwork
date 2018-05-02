@@ -1,9 +1,26 @@
 """Basic Functional HCH"""
 
-# TODO: The current system is pretty weak.
-# pointers are assumed to actually point at something. :(
-# The easiest way to solve this seems likely to be to wrap
-# all hypertext references inside some form of promise.
+"""
+Notes on transparent promises:
+
+Answers should be referenceable before they are computed.
+
+In general, an action can be generated that _would_ unlock
+an incomplete promise, but the resulting context should
+never be scheduled (or, probably, even created) until the
+incomplete promise is filled in. This kind of sucks, though,
+since it means that the hypertext graph is no longer really
+immutable...?
+
+Wait, no, you just have to make answers point at their
+questions. A situation doesn't have access to any of its subquestion's
+answers; the questions are only visible via some global dataset.
+This dataset gets passed into a _context_ but isn't available to a
+_situation_.
+"""
+
+# TODO: Context visiting currently doesn't work properly - boundaries
+# aren't added to the pointer_map, so we'll crash.
 
 import uuid
 
