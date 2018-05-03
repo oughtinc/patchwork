@@ -1,27 +1,5 @@
 """Basic Functional HCH"""
 
-"""
-Notes on transparent promises:
-
-Answers should be referenceable before they are computed.
-
-In general, an action can be generated that _would_ unlock
-an incomplete promise, but the resulting context should
-never be scheduled (or, probably, even created) until the
-incomplete promise is filled in. This kind of sucks, though,
-since it means that the hypertext graph is no longer really
-immutable...?
-
-Wait, no, you just have to make answers point at their
-questions. A situation doesn't have access to any of its subquestion's
-answers; the questions are only visible via some global dataset.
-This dataset gets passed into a _context_ but isn't available to a
-_situation_.
-"""
-
-# TODO: Context visiting currently doesn't work properly - boundaries
-# aren't added to the pointer_map, so we'll crash.
-
 import uuid
 
 from collections import deque
@@ -30,262 +8,303 @@ from textwrap import indent
 POINTER_FMT = "[{}]"
 INDENTATION = "  "
 
-class LazyHypertextStore(object):
-    """Very un-thread- and un-exception-safe"""
-    def __init__(self):
-        # Keys to promised hypertext that has not yet been resolved, with
-        # a list of holders of the promise, who would like to know about its
-        # resolution.
-        self.promises = {}
-
-        # There should only ever be one hypertext object with a given value
-        # in this datastore.
-        self.resolved_store = {}
-
-        # Content Addressing
-        # There _can_ be multiple keys that correspond to a hypertext value.
-        # In that case, the _first_ of those keys to be created should be stored
-        # inside store_values.
-        self.resolved_keys_by_value = {}
-
-    def createPromise(self):
-        key = uuid.uuid1()
-        self.promises[key] = []
-        return key
-
-    def valueExists(self, value):
-        return value in self.resolved_keys_by_value
-
-    def resolvePromise(self, key, value):
-        if key not in self.promises:
-            raise ValueError("Promise {} not pending during attempt to resolve".format(key))
-
-        promise_holders = self.promises[key]
-        del self.promises[key]
-        if self.valueExists(value):
-            # Hooray garbage collection!
-            self.store[key] = self.store[self.store_values[value]]
-        else:
-            self.store[key] = value
-            self.store_values[value] = key
-        return promise_holders
-
-    def isPromiseResolved(self, key):
-        return key in self.store
-
-    def getByAddress(self, key):
-        return self.store[key]
-
-    def addressOf(self, value):
-        return self.store_values[value]
-
-    def getByValue(self, value):
-        return 
-
-    def setDefaultValue(self, value):
-        """By analogy with dict.setdefault()"""
-        if self.valueExists(value):
-            key = datastore.addressOf(value)
-        else:
-            key = self.createPromise()
-            self.resolvePromise(key, value)
-        return key
-
+def format_chunk(chunk, display_map):
+    # raises KeyError if display_map is not None but also does not contain an element
+    # for a pointer-valued chunk
+    if isinstance(chunk, str):
+        return chunk
+    elif display_map is None:
+        return POINTER_FMT.format(chunk)
+    else:
+        return POINTER_FMT.format(display_map[chunk])
 
 
 class Hypertext(object):
-    def __init__(self, chunks):
-        self.chunks = chunks
-        referents = set()
-        for chunk in self.chunks:
-            if not isinstance(chunk, str):
-                referents.add(chunk)
-        self.referents = list(referents)
+    def __init__(self):
+        raise NotImplementedError("Hypertext is pure virtual")
 
     def __str__(self):
-        return self.toString(pointer_map=None)
+        return self.to_str()
 
-    def toString(self, pointer_map=None):
-        """String representing the current hypertext fragment, with pointer placeholders."""
-        builder = []
+    # REVISIT hash and eq; there are almost certainly better ways.
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __hash__(self):
+        return hash(str(self))
+
+    def links(self):
+        # NOTE: Link ordering _MUST NOT_ be dependent on any facts
+        # about the links themselves - it can only depend on
+        # relative facts about how they relate to the hypertext
+        # (e.g. should not rely on their hashes, or what data they
+        # point to). This is to ensure that observationally identical
+        # contexts have consistent mappings from a pointer id to a
+        # relative location in the local graph
+        raise NotImplementedError("Hypertext needs to specify links()")
+
+    def to_str(self, pointer_display_map=None):
+        raise NotImplementedError("Hypertext needs to implement __str__")
+
+
+class RawHypertext(Hypertext):
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    def links(self):
+        result = []
+        seen = set()
+        for c in self.chunks:
+            if isinstance(c, str):
+                continue
+            if c not in seen:
+                result.append(c)
+            seen.add(c)
+        return result
+
+    def to_str(self, pointer_display_map=None):
+        acc = []
         for chunk in self.chunks:
-            if isinstance(chunk, str):
-                builder.append(chunk)
-            else:
-                if pointer_map is not None:
-                    pointer_to_display = pointer_map[chunk]
-                else:
-                    pointer_to_display = chunk
-                builder.append(POINTER_FMT.format(pointer_to_display))
-        return ''.join(builder)
+            acc.append(format_chunk(chunk, pointer_display_map))
+        return ''.join(acc)
 
 
-class Question(Hypertext):
-    def __init__(self, datastore, query):
-        self.query = query
-        self.answer = datastore.
+class Question(RawHypertext):
+    def __init__(self, chunks, answer_link):
+        self.answer_link = answer_link
+        self.chunks = chunks
+
+    def links(self):
+        return [self.answer_link] + super().links()
+
+    def to_str(self, pointer_display_map=None):
+        return "{} : {}".format(
+            super().to_str(pointer_display_map=pointer_display_map),
+            format_chunk(self.answer_link, pointer_display_map))
 
 
 class Situation(Hypertext):
-    def __init__(self, datastore, predecessor=None, question=None, scratchpad=None, subquestion=None):
-        if [predecessor, question].count(None) != 1:
-            raise ValueError(
-                "A Situation must have exactly one of [predecessor, question].")
-        if [question, scratchpad, subquestion].count(None) != 2:
-            raise ValueError(
-                "A Situation must have exactly one of [question, scratchpad, subquestion].")
+    def __init__(self,
+                 predecessor=None,
+                 question_link=None,
+                 scratchpad_link=None,
+                 subquestion_link=None):
+        # Predecessor should actually be a predecessor object, but the rest are links.
+
+        # Annoyingly complicated rules:
+        if question_link is not None:
+            # If it has a question, it must have a scratchpad and no subquestion or predecessor.
+            assert predecessor is None
+            assert subquestion_link is None
+            assert scratchpad_link is not None
+        else:
+            # If it has no question, it must have a predecessor and either a scratchpad
+            # xor a subquestion.
+            assert predecessor is not None
+            assert [scratchpad_link, subquestion_link].count(None) == 1
 
         self.predecessor = predecessor
-        self.question = question
-        self.scratchpad = scratchpad
+        self.question = question_link
+        self.scratchpad = scratchpad_link
+        self.subquestion = subquestion_link
 
-        # Note that a subquestion should actually be a (question, answer) pair
-        self.subquestion = subquestion
-
-        # REVSIIT: not a huge fan of this
-        if self.question is not None:
-            self.scratchpad = datastore.setDefaultValue(Hypertext([""]))
-
-        self.referents = [self.getQuestion(), self.getScratchpad()]
-        for q, a in self.getSubQuestions():
-            self.referents.append(q)
-            self.referents.append(a)
-
-    def _getMostRecentFieldFromAncestors(self, accessor):
-        # naturally tail recursive but python doesn't know that
+    def _fold_over_predecessors(self, operation, acc):
         situation = self
         while situation is not None:
-            field = accessor(situation)
-            if field is not None:
-                return field
-            else:
-                situation = situation.predecessor
-        raise ValueError("Could not find a predecessor with the given field.")
-
-    def _accumulateFieldFromAncestors(self, accessor):
-        acc_reverse = []
-        situation = self
-        while situation is not None:
-            field = accessor(situation)
-            if field is not None:
-                acc_reverse.append(field)
+            acc = operation(situation, acc)
             situation = situation.predecessor
-        return reversed(acc_reverse)
+        return acc
 
-    def getQuestion(self):
-        return self._getMostRecentFieldFromAncestors(lambda s: s.question)
+    def get_question(self):
+        return self._fold_over_predecessors(lambda s, a: s.question, None)
 
-    def getScratchpad(self):
-        return self._getMostRecentFieldFromAncestors(lambda s: s.scratchpad)
+    def get_scratchpad(self):
+        return self._fold_over_predecessors(lambda s, a: a or s.scratchpad, None)
 
-    def getSubQuestions(self):
-        return self._accumulateFieldFromAncestors(lambda s: s.subquestion)
+    def get_subquestions(self):
+        return self._fold_over_predecessors(
+            lambda s, a: ([s.subquestion] if s.subquestion else []) + a, [])
 
-    def getSubQuestionsStr(self):
-        return "\n".join(str(q) for q in self.getSubQuestions())
+    def links(self):
+        return [self.get_question(), self.get_scratchpad(), *self.get_subquestions()]
 
-    def getAllRootHypertext(self):
-        subquestions = self.getSubQuestions()
-        subquestion_queries, subquestion_replies = zip(*subquestions)
-        return [self.getQuestion(), self.getScratchpad(), *subquestion_queries, *subquestion_replies]
-
-    def toString(self, pointer_map=None):
-        builder = []
-        builder.append("Question:")
-        builder.append(
-            indent(self.getQuestion().toString(pointer_map=pointer_map), INDENTATION))
-
-        builder.append("Scratchpad:")
-        builder.append(
-            indent(self.getScratchpad().toString(pointer_map=pointer_map), INDENTATION))
-
-        builder.append("Subquestions:")
-        for i, subquestion in enumerate(self.getSubquestions(), start=1):
-            subquestion.toString(pointer_map=pointer_map)
-
-            builder.append(indent("{}. {}".format(
-                i, subquestion_query, subquestion_answer), INDENTATION))
-
-        return "\n".join(builder)
+    def to_str(self, pointer_display_map=None):
+        acc = []
+        acc.append("Question: {}".format(
+            format_chunk(self.get_question(), pointer_display_map)))
+        acc.append("Scratchpad: {}".format(
+            format_chunk(self.get_scratchpad(), pointer_display_map)))
+        acc.append("Subquestions:")
+        for subquestion in self.get_subquestions():
+            acc.append(indent(
+                format_chunk(subquestion, pointer_display_map), INDENTATION))
+        return '\n'.join(acc)
 
 
-class Context(object):
-    def __init__(self, situation, unlocked_addresses, datastore):
-        self.situation = situation
-        self.unlocked_addresses = unlocked_addresses
-        self.normalized_pointers = self._determineNormalization()
+class Context(Hypertext):
+    def __init__(self, situation, unlocked_locations, datastore):
+        self.template_situation = situation
+        self.template_unlocked_locations
+        self.template_link_display_map = self._build_link_display_map(
+            situation, unlocked_locations, datastore)
 
-    def _visitHypertext(self, procedure, datastore):
-        """Call procedure(element) on each element of the unlocked hypertext graph."""
-        frontier = deque(self.situation.getAllRootHypertext())
-        explored = set(frontier)
+        self.display = self._build_display(datastore)
+
+    def _map_over_unlocked_region(self, f, root, unlocked_locations, datastore):
+        frontier = deque(root.links())
+        seen = set(frontier)
         while not frontier.empty():
-            current_element = frontier.popleft()
-            for item in current_element.referents:
-                if item in self.unlocked_addresses and item not in explored:
-                    procedure(item)
-                    explored.add(item)
-                    frontier.push_back(item)
+            link = frontier.popleft()
+            if link in unlocked_locations:
+                content = datastore.dereference(link)
+                f(link, content)
+                for nextlink in content.links():
+                    if nextlink not in seen:
+                        frontier.pushright(nextlink)
+                        seen.add(nextlink)
+
+    def _build_link_display_map(self, root, unlocked_locations, datastore):
+        result = {}
+
+        def assign_pointer_view(_, content):
+            for link in content.links():
+                if link not in result:
+                    result[link] = len(result) + 1
+
+        self._map_over_unlocked_region(assign_pointer_view,
+                                       root,
+                                       unlocked_locations,
+                                       datastore)
+        return result
+
+    def _build_display(self, datastore):
+        acc = []
+        acc.append("Question:")
+        acc.append(
+            textwrap.indent(
+                datastore.dereference(
+                    self.template_situation.get_question()
+                ).to_str(pointer_display_map=self.template_link_display_map),
+                INDENTATION
+            )
+        )
+
+        acc.append("Scratchpad:")
+        acc.append(
+            textwrap.indent(
+                datastore.dereference(
+                    self.template_situation.get_scratchpad()
+                ).to_str(pointer_display_map=self.template_link_display_map),
+                INDENTATION
+            )
+        )
+
+        acc.append("Subquestions:")
+        for i, subquestion in enumerate(self.template_situation.get_subquestions(), start=1):
+            acc.append(
+                textwrap.indent(
+                    "{}. {}".format(
+                        i,
+                        datastore.dereference(subquestion).to_str(
+                            pointer_display_map=self.template_link_display_map
+                        )
+                    ),
+                    INDENTATION
+                )
+            )
+
+        # okay, since the values in the display map are unique integers
+        inverted_display_map = list(
+            sorted((v, k) for (k, v) in self.template_link_display_map.items()))
+
+        acc.append("Unlocked Data:")
+        for display_number, link in inverted_display_map:
+            if link in self.unlocked_locations:
+                acc.append(
+                    textwrap.indent(
+                        "{}. {}".format(
+                            display_number,
+                            datastore.dereference(link).to_str(
+                                pointer_display_map=self.template_link_display_map)
+                        ),
+                        INDENTATION
+                    )
+                )
+        return "\n".join(acc)
 
 
-    def _determineNormalization(self):
-        """Pointer display must be unique in a context.
+    def links(self):
+        # A Context has no links, only variables
+        return []
 
-        Here we choose a map from object id to display id."""
-        mapping = {}
-        def addReferentsToMapping(element):
-            for link in element.referents:
-                if link not in mapping:
-                    mapping[link] = len(mapping) + 1
-
-        self._visitHypertext(addReferentsToMapping)
-        return mapping
-
-    def __str__(self):
-        # I guess this could be done on __init__... we probably call it a lot.
-        builder = []
-        builder.append(self.situation.strWithPointerMap(self.normalized_pointers))
-
-        def addToBuilder(element):
-            pointer_display = POINTER_FMT.format(self.normalized_pointers[element.address()])
-            text_display = element.strWithPointerMap(self.normalized_pointers)
-            builder.append(indent("{}: {}".format(pointer_display, text_display), INDENTATION))
-
-        self._visitHypertext(addToBuilder)
-        return "\n".join(builder)
-
-    def __hash__(self, other):
-        # REVISIT along with __eq__
-        return hash(str(self))
-
-    def __eq__(self, other):
-        # REVISIT - inefficient (though I think this is close to the semantics we want)
-        return str(self) == str(other)
+    def to_str(self, pointer_display_map=None):
+        return self.display
 
 
-class ContextScheduler(object):
-    """Not thread- or exception-safe"""
-    def __init__(self, datastore=None):
-        self.pending_contexts = deque() # contexts that _could_ be worked on but are not
-        self.active_contexts = set() # contexts that are currently being worked on
-        self.memoized_contexts = {}
-        if datastore is None:
-            self.datastore = LazyHypertextStore()
-        else:
-            self.datastore = datastore
+class Datastore(object):
+    def __init__(self):
+        self.data = {}
+        self.unfulfilled_promises = {}
+        self.EMPTY = self.insert(RawHypertext([""]))
 
-    def chooseContext(self):
-        if self.pending_contexts.empty():
-            return None
-        else:
-            result = pending_contexts.popleft()
-            self.active_contexts.add(result)
-            return result
+    def dereference(self, link):
+        return self.data[link]
 
-    def abortContext(self, context):
-        self.pending_contexts.pushleft(context)
-        self.active_contexts.delete(context)
+    def make_promise(self):
+        link = uuid.uuid1()
+        self.unfulfilled_promises[link] = []
+        return link
 
-    def completeContext(self, context, action):
-        self.active_contexts.remove(context)
+    def register_promisee(self, link, promisee):
+        self.unfulfilled_promises[link].append(promisee)
+
+    def fulfill_promise(self, link, value):
+        promisees = self.unfulfilled_promises[link]
+        del self.unfulfilled_promises[link]
+        self.data[link] = value
+        return promisees
+
+    def insert(self, value):
+        key = self.make_promise()
+        self.fulfill_promise(key, value)
+        return key
+
+
+class Action(object):
+    def __init__(self, context):
+        raise NotImplementedError("Action is a pure abstract class.")
+
+    def execute(self, datastore, situation):
+        raise NotImplementedError("Action subclasses must implement execute")
+
+
+class EditScratchpad(Action):
+    def __init__(self, context, edit_contents):
+        self.context = context
+        self.edit_contents = edit_contents
+
+
+class AskSubQuestion(Action):
+    def __init__(self, context, question_contents):
+        self.context = context
+        self.question_contents = question_contents
+
+
+class AnswerQuestion(Action):
+    def __init__(self, context, question_index, answer_contents):
+        self.context = context
+        self.question_index = question_index
+        self.answer_contents = answer_contents
+
+
+class ExportScratchpad(Action):
+    def __init__(self, context):
+        self.context = context
+
+
+class UnlockPointer(Action):
+    def __init__(self, context, pointer_index):
+        self.context = context
+        self.pointer_index = pointer_index
+
 
