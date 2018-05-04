@@ -426,62 +426,23 @@ class UnlockPointer(Action):
 class Scheduler(object):
     def __init__(self, datastore):
         self.datastore = datastore
-
         self.pending_contexts = deque()
-        self.active_contexts = set()
+        self.cached_actions = {}
 
-        # Each value in this dict is a list of elements that are __eq__ to the key.
-        self.pending_and_active_duplicates = defaultdict(list)
+    def schedule_context(self, context):
+        self.pending_contexts.append(context)
 
-        self.memoized_contexts = {}
-
-    def choose_and_activate_context(self):
-        result = self.pending_contexts.popleft()
-        self.active_contexts.add(result)
-        return result
-
-    def abort_context(self, context):
-        self.pending_contexts.appendleft(context)
-        self.active_contexts.remove(context)
-
-    def prepare_or_duplicate_context(self, context):
-        if context not in self.pending_and_active_duplicates:
-            self.pending_contexts.append(context)
-        self.pending_and_active_duplicates[context].append(context)
+    def choose_context(self):
+        while self.pending_contexts[0] in self.cached_actions:
+            cached_context = self.pending_contexts.popleft()
+            cached_action = self.cached_actions[cached_context]
+            resulting_contexts = cached_action.execute(self.datastore, cached_context.template_situation_link)
+            self.pending_contexts.extend(resulting_contexts)
+        return self.pending_contexts.popleft()
 
     def resolve_action(self, context, action):
-        if context not in self.active_contexts:
-            raise ValueError(
-                "It appears that an identical context was scheduled more than one time, or"
-                "else an inactive context responded to.")
-
-        self.memoized_contexts[context] = action
-        self.active_contexts.remove(context)
-
-        for result in action.execute(self.datastore, context.template_situation_link):
-            self.pending_contexts.append(result)
-
-        """
-        for c in self.pending_and_active_duplicates[context]:
-            pending_executions = deque([(action, c.template_situation_link)])
-            while len(pending_executions) > 0:
-                a, s = pending_executions.popleft()
-                resulting_contexts = a.execute(self.datastore, s)
-                for r in resulting_contexts:
-                    # TODO: normally we might worry that r == c and we'd modify
-                    # pending_and_active_duplicates[c] accidentally. But that can't happen,
-                    # since c is in self.memoized_contexts at this point, so we're not
-                    # modifying a list we're iterating over. What _could_ happen, though
-                    # is that r might be generated from itself (or some other more complicated
-                    # cycle could occur), sticking us in an infinite loop. This might be a
-                    # natural place to insert some safeguards against inflooping.
-                    if r in self.memoized_contexts:
-                        pending_executions.append((self.memoized_contexts[r], r.template_situation_link))
-                    else:
-                        self.prepare_or_duplicate_context(r)
-
-        del self.pending_and_active_duplicates[context]
-        """
+        self.cached_actions[context] = action
+        self.pending_contexts.extend(action.execute(self.datastore, context.template_situation_link))
 
 
 def parse_chunks(arg):
@@ -514,8 +475,8 @@ class UserInterface(cmd.Cmd):
             situation = Situation(scratchpad_link=self.datastore.EMPTY, question_link=question_link)
             situation_link = self.datastore.insert(situation)
             new_context = Context(situation_link, situation.links(), self.datastore)
-            self.scheduler.prepare_or_duplicate_context(new_context)
-            self.current_workspace = self.scheduler.choose_and_activate_context()
+            self.scheduler.schedule_context(new_context)
+            self.current_workspace = self.scheduler.choose_context()
         else:
             return super().default(line)
 
@@ -541,19 +502,19 @@ class UserInterface(cmd.Cmd):
         """Ask a subquestion"""
         action = AskSubQuestion(self.current_workspace, parse_chunks(arg))
         self.scheduler.resolve_action(self.current_workspace, action)
-        self.current_workspace = self.scheduler.choose_and_activate_context()
+        self.current_workspace = self.scheduler.choose_context()
 
     def do_reply(self, arg):
         """Provide an answer to this question."""
         action = AnswerQuestion(self.current_workspace, parse_chunks(arg))
         self.scheduler.resolve_action(self.current_workspace, action)
-        self.current_workspace = self.scheduler.choose_and_activate_context()
+        self.current_workspace = self.scheduler.choose_context()
 
     def do_unlock(self, arg):
         """Unlock a pointer"""
         action = UnlockPointer(self.current_workspace, int(arg))
         self.scheduler.resolve_action(self.current_workspace, action)
-        self.current_workspace = self.scheduler.choose_and_activate_context()
+        self.current_workspace = self.scheduler.choose_context()
 
 
 def main(argv):
