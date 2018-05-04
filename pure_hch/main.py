@@ -1,6 +1,7 @@
 """Basic Functional HCH"""
 
 import cmd
+import logging
 import os
 import pickle
 import sys
@@ -31,6 +32,8 @@ class Hypertext(object):
         return self.to_str()
 
     # REVISIT hash and eq; there are almost certainly better ways.
+    # We are kind of abusing python's idea of "equality", especially
+    # when the scheduler is using Contexts as keys in various containers
     def __eq__(self, other):
         return str(self) == str(other)
 
@@ -133,7 +136,8 @@ class Situation(Hypertext):
         return self.get_subquestions()[index]
 
     def links(self):
-        return [self.get_question(), self.get_scratchpad(), *self.get_subquestions()]
+
+        return [self.get_question(), self.get_scratchpad()] + self.get_subquestions()
 
     def to_str(self, pointer_display_map=None):
         acc = []
@@ -153,7 +157,7 @@ class Context(Hypertext):
         self.template_situation_link = situation_link
         self.template_unlocked_locations = unlocked_locations
         self.template_link_display_map = self._build_link_display_map(
-            situation, datastore)
+            datastore.dereference(situation_link), datastore)
 
         self.display = self._build_display(datastore)
 
@@ -175,10 +179,10 @@ class Context(Hypertext):
         # NOTE: This is why link orderings _must_ be stable and not change when
         # the hypertext object is observationally identical.
         template_situation = datastore.dereference(self.template_situation_link)
-        assert(len(template_situation.links()) == len(self.root.links()))
+        assert(len(template_situation.links()) == len(root.links()))
         frontier = deque(zip(template_situation.links(), root.links()))
         seen = set(frontier)
-        while not frontier.empty():
+        while len(frontier) > 0:
             template_link, mirror_link = frontier.popleft()
             if template_link in self.template_unlocked_locations:
                 template_content = datastore.dereference(template_link)
@@ -187,7 +191,7 @@ class Context(Hypertext):
                 assert(len(template_content.links()) == len(mirror_content.links()))
                 for next_links in zip(template_content.links(), mirror_content.links()):
                     if next_links not in seen:
-                        frontier.pushright(next_links)
+                        frontier.append(next_links)
                         seen.add(next_links)
 
     def _build_link_display_map(self, root, datastore):
@@ -215,7 +219,7 @@ class Context(Hypertext):
             # Indentation here is used to enforce that the relevant parts of the
             # logical structure of a context are unambiguous: Any sub-elements
             # of the context are indented, while any structural delimiters are not.
-            return textwrap.indent(
+            return indent(
                 datastore.dereference(link).to_str(
                     pointer_display_map=self.template_link_display_map
                 ),
@@ -234,8 +238,10 @@ class Context(Hypertext):
             acc.append("{}.{}".format(i, deref_and_indent(subquestion)))
 
         acc.append("Unlocked Data:")
+        logging.warn(self.template_unlocked_locations)
         for display_number, link in self._invert_display_map(self.template_link_display_map):
-            if link in self.unlocked_locations:
+            logging.warn(link)
+            if link in self.template_unlocked_locations:
                 acc.append("{}.{}".format(display_number, deref_and_indent(link)))
         return "\n".join(acc)
 
@@ -248,7 +254,7 @@ class Context(Hypertext):
         return self.display
 
     def renormalize_pointer(self, situation, index, datastore):
-        for link, key in self._build_link_display_map(situation, datastore):
+        for link, key in self._build_link_display_map(situation, datastore).items():
             if key == index:
                 return link
         raise ValueError("Index not found in context")
@@ -257,11 +263,12 @@ class Context(Hypertext):
         result = []
         pointer_map = dict(
             self._invert_display_map(self._build_link_display_map(situation, datastore)))
-        for thing in hypertext_chunks:
+        for chunk in hypertext_chunks:
             if isinstance(chunk, str):
                 result.append(chunk)
             else:
                 result.push_back(pointer_map[chunk])
+        return result
 
     def map_unlocked_locations(self, situation, datastore):
         result = []
@@ -353,16 +360,18 @@ class AskSubQuestion(Action):
 
         # 3. Create and insert a situation based on the passed in situation
         # and the question we've created
-        successor_situation_link = datastore.insert(
-            Situation(predecessor=situation, subquestion_link=new_question_link))
+        successor_situation = Situation(predecessor=situation, subquestion_link=new_question_link)
+        successor_situation_link = datastore.insert(successor_situation)
         mapped_unlocked_locations = self.context.map_unlocked_locations(situation, datastore)
+        mapped_unlocked_locations.append(new_question_link)
 
         # 4. Also create and insert a situation for the subquestion.
-        subquestion_situation_link = datastore.insert(
-            Situation(question_link=new_question_link, scratchpad_link=datastore.EMPTY))
+        subquestion_situation = Situation(
+            question_link=new_question_link, scratchpad_link=datastore.EMPTY)
+        subquestion_situation_link = datastore.insert(subquestion_situation)
 
         # 5. yield a context for each of the created situations.
-        yield Context(subquestion_situation_link, situation.links(), datastore)
+        yield Context(subquestion_situation_link, subquestion_situation.links(), datastore)
         yield Context(successor_situation_link, mapped_unlocked_locations, datastore)
 
 
@@ -373,18 +382,20 @@ class AnswerQuestion(Action):
 
     def execute(self, datastore, situation_link):
         situation = datastore.dereference(situation_link)
+
         # 1. Figure out the answer link
         question_link = situation.get_question()
         answer_link = datastore.dereference(question_link).answer_link
 
         # 2. Get a version of the answer contents that are relevant to the passed in situation
-        concrete_contents = self.context.renormalize_hypertext(situation, self.question_contents)
+        concrete_contents = self.context.renormalize_hypertext(situation, self.answer_contents, datastore)
 
         # 3. Create an answer with the contents
         answer = RawHypertext(concrete_contents)
 
         # 4. Fulfill the promise relevant to the question and yield each of the promisees
-        return datastore.fulfill_promise(answer_link, answer)
+        for situation_link, mapped_unlocked_locations in datastore.fulfill_promise(answer_link, answer):
+            yield Context(situation_link, mapped_unlocked_locations, datastore)
 
 
 class UnlockPointer(Action):
@@ -402,14 +413,14 @@ class UnlockPointer(Action):
         # 2. Create a context that points to this situation and is identical
         # to the initial context, but with the link in its set of unlocked pointers
         mapped_unlocked_locations = self.context.map_unlocked_locations(situation, datastore)
-        possibly_new_context = Context(situation_link, mapped_unlocked_locations, datastore)
+        mapped_unlocked_locations.append(pointer_link)
 
-        # 3. If the pointer is fulfilled, yield the context.
         if datastore.is_fulfilled(pointer_link):
-            yield possibly_new_context
-
-        # 4. If not, add the context to the pointer's promisees
-        datastore.register_promisee(pointer_link, possibly_new_context)
+            # 3. If the pointer is fulfilled, yield the context.
+            yield Context(situation_link, mapped_unlocked_locations, datastore)
+        else:
+            # 4. If not, add the context to the pointer's promisees
+            datastore.register_promisee(pointer_link, (situation_link, mapped_unlocked_locations))
 
 
 class Scheduler(object):
@@ -418,6 +429,8 @@ class Scheduler(object):
 
         self.pending_contexts = deque()
         self.active_contexts = set()
+
+        # Each value in this dict is a list of elements that are __eq__ to the key.
         self.pending_and_active_duplicates = defaultdict(list)
 
         self.memoized_contexts = {}
@@ -427,9 +440,13 @@ class Scheduler(object):
         self.active_contexts.add(result)
         return result
 
+    def abort_context(self, context):
+        self.pending_contexts.appendleft(context)
+        self.active_contexts.remove(context)
+
     def prepare_or_duplicate_context(self, context):
-        if context not in self.pending_duplicates:
-            self.pending_contexts.pushright(context)
+        if context not in self.pending_and_active_duplicates:
+            self.pending_contexts.append(context)
         self.pending_and_active_duplicates[context].append(context)
 
     def resolve_action(self, context, action):
@@ -441,9 +458,13 @@ class Scheduler(object):
         self.memoized_contexts[context] = action
         self.active_contexts.remove(context)
 
+        for result in action.execute(self.datastore, context.template_situation_link):
+            self.pending_contexts.append(result)
+
+        """
         for c in self.pending_and_active_duplicates[context]:
-            pending_executions = deque([(action, c.situation_link)])
-            while not pending_executions.empty():
+            pending_executions = deque([(action, c.template_situation_link)])
+            while len(pending_executions) > 0:
                 a, s = pending_executions.popleft()
                 resulting_contexts = a.execute(self.datastore, s)
                 for r in resulting_contexts:
@@ -455,17 +476,33 @@ class Scheduler(object):
                     # cycle could occur), sticking us in an infinite loop. This might be a
                     # natural place to insert some safeguards against inflooping.
                     if r in self.memoized_contexts:
-                        pending_executions.pushright((self.memoized_contexts[r], r.situation_link))
+                        pending_executions.append((self.memoized_contexts[r], r.template_situation_link))
                     else:
                         self.prepare_or_duplicate_context(r)
 
         del self.pending_and_active_duplicates[context]
+        """
+
+
+def parse_chunks(arg):
+    result = []
+    # HACK
+    while True:
+        try:
+            start, rest = arg.split("[", 1)
+            pointer, arg = arg.split("]", 1)
+            result.append(start, int(pointer))
+        except ValueError:
+            result.append(arg)
+            break
+    return result
 
 
 class UserInterface(cmd.Cmd):
     intro = "What is your root question?"
     prompt = "> "
     def __init__(self, datastore, scheduler):
+        super().__init__()
         self.datastore = datastore
         self.scheduler = scheduler
         self.current_workspace = None
@@ -474,9 +511,9 @@ class UserInterface(cmd.Cmd):
         if self.current_workspace is None:
             answer_link = self.datastore.make_promise()
             question_link = self.datastore.insert(Question([line], answer_link))
-            situation = Situation(scratchpad_link=datastore.EMPTY, question_link=question_link)
+            situation = Situation(scratchpad_link=self.datastore.EMPTY, question_link=question_link)
             situation_link = self.datastore.insert(situation)
-            new_context = Context(situation_link, situation.links(), datastore)
+            new_context = Context(situation_link, situation.links(), self.datastore)
             self.scheduler.prepare_or_duplicate_context(new_context)
             self.current_workspace = self.scheduler.choose_and_activate_context()
         else:
@@ -494,18 +531,36 @@ class UserInterface(cmd.Cmd):
             print(self.current_workpace)
 
     def postcmd(self, stop, line):
-        self.prompt = str(self.current_workspace + "\n" + UserInterface.prompt)
+        self.prompt = str(self.current_workspace) + "\n" + UserInterface.prompt
         return stop
 
     def emptyline(self):
         pass
 
     def do_ask(self, arg):
+        """Ask a subquestion"""
+        action = AskSubQuestion(self.current_workspace, parse_chunks(arg))
+        self.scheduler.resolve_action(self.current_workspace, action)
+        self.current_workspace = self.scheduler.choose_and_activate_context()
 
+    def do_reply(self, arg):
+        """Provide an answer to this question."""
+        action = AnswerQuestion(self.current_workspace, parse_chunks(arg))
+        self.scheduler.resolve_action(self.current_workspace, action)
+        self.current_workspace = self.scheduler.choose_and_activate_context()
+
+    def do_unlock(self, arg):
+        """Unlock a pointer"""
+        action = UnlockPointer(self.current_workspace, int(arg))
+        self.scheduler.resolve_action(self.current_workspace, action)
+        self.current_workspace = self.scheduler.choose_and_activate_context()
 
 
 def main(argv):
-    pass
+    datastore = Datastore()
+    scheduler = Scheduler(datastore)
+    interface = UserInterface(datastore, scheduler)
+    interface.cmdloop()
 
 if __name__ == "__main__":
     main(sys.argv)
