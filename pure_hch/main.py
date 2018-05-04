@@ -1,8 +1,12 @@
 """Basic Functional HCH"""
 
+import cmd
+import os
+import pickle
+import sys
 import uuid
 
-from collections import deque
+from collections import defaultdict, deque
 from textwrap import indent
 
 POINTER_FMT = "[{}]"
@@ -125,6 +129,9 @@ class Situation(Hypertext):
         return self._fold_over_predecessors(
             lambda s, a: ([s.subquestion] if s.subquestion else []) + a, [])
 
+    def subquestion_link_by_index(self, index):
+        return self.get_subquestions()[index]
+
     def links(self):
         return [self.get_question(), self.get_scratchpad(), *self.get_subquestions()]
 
@@ -142,28 +149,48 @@ class Situation(Hypertext):
 
 
 class Context(Hypertext):
-    def __init__(self, situation, unlocked_locations, datastore):
-        self.template_situation = situation
-        self.template_unlocked_locations
+    def __init__(self, situation_link, unlocked_locations, datastore):
+        self.template_situation_link = situation_link
+        self.template_unlocked_locations = unlocked_locations
         self.template_link_display_map = self._build_link_display_map(
-            situation, unlocked_locations, datastore)
+            situation, datastore)
 
         self.display = self._build_display(datastore)
 
-    def _map_over_unlocked_region(self, f, root, unlocked_locations, datastore):
-        frontier = deque(root.links())
+    def _map_over_unlocked_region(self, f, root, datastore):
+        # TODO: I'm not sure exactly what properties this search requires of
+        # the two directed graphs it's searching over. It will certainly work
+        # if they have the exact same structure, down to address equality, but
+        # it might not work if they merely have observationally identical structure.
+        # That is, if the two graphs would stringify to the same thing, but have different
+        # underlying structures.
+
+        # An example might be if self.template_situation has a structure that looks
+        # like A->B->C, D->B->C, while root has a structure a->b->c, d->e->c (where b
+        # and d have observationally identical content but different addresses).
+
+        # I _THINK_ that this can't happen in practice, since these graphs actually
+        # wouldn't be observationally identical.
+
+        # NOTE: This is why link orderings _must_ be stable and not change when
+        # the hypertext object is observationally identical.
+        template_situation = datastore.dereference(self.template_situation_link)
+        assert(len(template_situation.links()) == len(self.root.links()))
+        frontier = deque(zip(template_situation.links(), root.links()))
         seen = set(frontier)
         while not frontier.empty():
-            link = frontier.popleft()
-            if link in unlocked_locations:
-                content = datastore.dereference(link)
-                f(link, content)
-                for nextlink in content.links():
-                    if nextlink not in seen:
-                        frontier.pushright(nextlink)
-                        seen.add(nextlink)
+            template_link, mirror_link = frontier.popleft()
+            if template_link in self.template_unlocked_locations:
+                template_content = datastore.dereference(template_link)
+                mirror_content = datastore.dereference(mirror_link)
+                f(mirror_link, mirror_content)
+                assert(len(template_content.links()) == len(mirror_content.links()))
+                for next_links in zip(template_content.links(), mirror_content.links()):
+                    if next_links not in seen:
+                        frontier.pushright(next_links)
+                        seen.add(next_links)
 
-    def _build_link_display_map(self, root, unlocked_locations, datastore):
+    def _build_link_display_map(self, root, datastore):
         result = {}
 
         def assign_pointer_view(_, content):
@@ -173,75 +200,79 @@ class Context(Hypertext):
 
         self._map_over_unlocked_region(assign_pointer_view,
                                        root,
-                                       unlocked_locations,
                                        datastore)
         return result
 
+    def _invert_display_map(self, display_map):
+        # okay, since the values in the display map are unique integers
+        return list(sorted((v, k) for (k, v) in display_map.items()))
+
+
     def _build_display(self, datastore):
+        template_situation = datastore.dereference(self.template_situation_link)
+
+        def deref_and_indent(link):
+            # Indentation here is used to enforce that the relevant parts of the
+            # logical structure of a context are unambiguous: Any sub-elements
+            # of the context are indented, while any structural delimiters are not.
+            return textwrap.indent(
+                datastore.dereference(link).to_str(
+                    pointer_display_map=self.template_link_display_map
+                ),
+                INDENTATION
+            )
+
         acc = []
         acc.append("Question:")
-        acc.append(
-            textwrap.indent(
-                datastore.dereference(
-                    self.template_situation.get_question()
-                ).to_str(pointer_display_map=self.template_link_display_map),
-                INDENTATION
-            )
-        )
+        acc.append(deref_and_indent(template_situation.get_question()))
 
         acc.append("Scratchpad:")
-        acc.append(
-            textwrap.indent(
-                datastore.dereference(
-                    self.template_situation.get_scratchpad()
-                ).to_str(pointer_display_map=self.template_link_display_map),
-                INDENTATION
-            )
-        )
+        acc.append(deref_and_indent(template_situation.get_scratchpad()))
 
         acc.append("Subquestions:")
-        for i, subquestion in enumerate(self.template_situation.get_subquestions(), start=1):
-            acc.append(
-                textwrap.indent(
-                    "{}. {}".format(
-                        i,
-                        datastore.dereference(subquestion).to_str(
-                            pointer_display_map=self.template_link_display_map
-                        )
-                    ),
-                    INDENTATION
-                )
-            )
-
-        # okay, since the values in the display map are unique integers
-        inverted_display_map = list(
-            sorted((v, k) for (k, v) in self.template_link_display_map.items()))
+        for i, subquestion in enumerate(template_situation.get_subquestions(), start=1):
+            acc.append("{}.{}".format(i, deref_and_indent(subquestion)))
 
         acc.append("Unlocked Data:")
-        for display_number, link in inverted_display_map:
+        for display_number, link in self._invert_display_map(self.template_link_display_map):
             if link in self.unlocked_locations:
-                acc.append(
-                    textwrap.indent(
-                        "{}. {}".format(
-                            display_number,
-                            datastore.dereference(link).to_str(
-                                pointer_display_map=self.template_link_display_map)
-                        ),
-                        INDENTATION
-                    )
-                )
+                acc.append("{}.{}".format(display_number, deref_and_indent(link)))
         return "\n".join(acc)
 
-
     def links(self):
-        # A Context has no links, only variables
+        # A Context has no links - it _is_ what the user sees, and is not situated in the
+        # hypertext web, except potentially as an object that can be pointed at.
         return []
 
     def to_str(self, pointer_display_map=None):
         return self.display
 
+    def renormalize_pointer(self, situation, index, datastore):
+        for link, key in self._build_link_display_map(situation, datastore):
+            if key == index:
+                return link
+        raise ValueError("Index not found in context")
+
+    def renormalize_hypertext(self, situation, hypertext_chunks, datastore):
+        result = []
+        pointer_map = dict(
+            self._invert_display_map(self._build_link_display_map(situation, datastore)))
+        for thing in hypertext_chunks:
+            if isinstance(chunk, str):
+                result.append(chunk)
+            else:
+                result.push_back(pointer_map[chunk])
+
+    def map_unlocked_locations(self, situation, datastore):
+        result = []
+        self._map_over_unlocked_region(lambda l, c: result.append(l), situation, datastore)
+        return result
+
 
 class Datastore(object):
+    # REVISIT: It might be nice to have the datastore deduplicate
+    # identical content; this would plausibly help with some cycle
+    # checking
     def __init__(self):
         self.data = {}
         self.unfulfilled_promises = {}
@@ -264,6 +295,10 @@ class Datastore(object):
         self.data[link] = value
         return promisees
 
+    def is_fulfilled(self, link):
+        if link in self.data:
+            return True
+
     def insert(self, value):
         key = self.make_promise()
         self.fulfill_promise(key, value)
@@ -271,30 +306,27 @@ class Datastore(object):
 
 
 class Action(object):
+    # REVISIT: Should Action inherit from Hypertext? Seems like maybe?
+
+    # REVISIT: insert contexts into datstores as they're created? right
+    # now there won't be much affordance for doing anything useful with them
     def __init__(self, context):
         raise NotImplementedError("Action is a pure abstract class.")
 
-    def execute(self, datastore, situation):
+    def execute(self, datastore, situation_link):
         raise NotImplementedError("Action subclasses must implement execute")
 
 
 class EditScratchpad(Action):
+    # TODO: Scratchpad edits can result in annoying infinite loops;
+    # I'm not sure exactly how to deal with this.
+
+    # Budgets would probably save me
+
+    # Could also add some kind of infinite loop checking
     def __init__(self, context, edit_contents):
         self.context = context
         self.edit_contents = edit_contents
-
-
-class AskSubQuestion(Action):
-    def __init__(self, context, question_contents):
-        self.context = context
-        self.question_contents = question_contents
-
-
-class AnswerQuestion(Action):
-    def __init__(self, context, question_index, answer_contents):
-        self.context = context
-        self.question_index = question_index
-        self.answer_contents = answer_contents
 
 
 class ExportScratchpad(Action):
@@ -302,9 +334,179 @@ class ExportScratchpad(Action):
         self.context = context
 
 
-class UnlockPointer(Action):
-    def __init__(self, context, pointer_index):
+class AskSubQuestion(Action):
+    def __init__(self, context, question_contents):
         self.context = context
-        self.pointer_index = pointer_index
+        self.question_contents = question_contents
 
+    def execute(self, datastore, situation_link):
+        situation = datastore.dereference(situation_link)
+
+        # 1. Get a version of the question contents that are
+        # relevant to the passed in situation
+        concrete_contents = self.context.renormalize_hypertext(
+            situation, self.question_contents, datastore)
+
+        # 2. Create and insert a subquestion from those contents
+        answer_link = datastore.make_promise()
+        new_question_link = datastore.insert(Question(concrete_contents, answer_link))
+
+        # 3. Create and insert a situation based on the passed in situation
+        # and the question we've created
+        successor_situation_link = datastore.insert(
+            Situation(predecessor=situation, subquestion_link=new_question_link))
+        mapped_unlocked_locations = self.context.map_unlocked_locations(situation, datastore)
+
+        # 4. Also create and insert a situation for the subquestion.
+        subquestion_situation_link = datastore.insert(
+            Situation(question_link=new_question_link, scratchpad_link=datastore.EMPTY))
+
+        # 5. yield a context for each of the created situations.
+        yield Context(subquestion_situation_link, situation.links(), datastore)
+        yield Context(successor_situation_link, mapped_unlocked_locations, datastore)
+
+
+class AnswerQuestion(Action):
+    def __init__(self, context, answer_contents):
+        self.context = context
+        self.answer_contents = answer_contents
+
+    def execute(self, datastore, situation_link):
+        situation = datastore.dereference(situation_link)
+        # 1. Figure out the answer link
+        question_link = situation.get_question()
+        answer_link = datastore.dereference(question_link).answer_link
+
+        # 2. Get a version of the answer contents that are relevant to the passed in situation
+        concrete_contents = self.context.renormalize_hypertext(situation, self.question_contents)
+
+        # 3. Create an answer with the contents
+        answer = RawHypertext(concrete_contents)
+
+        # 4. Fulfill the promise relevant to the question and yield each of the promisees
+        return datastore.fulfill_promise(answer_link, answer)
+
+
+class UnlockPointer(Action):
+    def __init__(self, context, pointer_display_index):
+        self.context = context
+        self.pointer_display_index = pointer_display_index
+
+    def execute(self, datastore, situation_link):
+        situation = datastore.dereference(situation_link)
+
+        # 1. Figure out which link the pointer index corresponds to
+        pointer_link = self.context.renormalize_pointer(
+            situation, self.pointer_display_index, datastore)
+
+        # 2. Create a context that points to this situation and is identical
+        # to the initial context, but with the link in its set of unlocked pointers
+        mapped_unlocked_locations = self.context.map_unlocked_locations(situation, datastore)
+        possibly_new_context = Context(situation_link, mapped_unlocked_locations, datastore)
+
+        # 3. If the pointer is fulfilled, yield the context.
+        if datastore.is_fulfilled(pointer_link):
+            yield possibly_new_context
+
+        # 4. If not, add the context to the pointer's promisees
+        datastore.register_promisee(pointer_link, possibly_new_context)
+
+
+class Scheduler(object):
+    def __init__(self, datastore):
+        self.datastore = datastore
+
+        self.pending_contexts = deque()
+        self.active_contexts = set()
+        self.pending_and_active_duplicates = defaultdict(list)
+
+        self.memoized_contexts = {}
+
+    def choose_and_activate_context(self):
+        result = self.pending_contexts.popleft()
+        self.active_contexts.add(result)
+        return result
+
+    def prepare_or_duplicate_context(self, context):
+        if context not in self.pending_duplicates:
+            self.pending_contexts.pushright(context)
+        self.pending_and_active_duplicates[context].append(context)
+
+    def resolve_action(self, context, action):
+        if context not in self.active_contexts:
+            raise ValueError(
+                "It appears that an identical context was scheduled more than one time, or"
+                "else an inactive context responded to.")
+
+        self.memoized_contexts[context] = action
+        self.active_contexts.remove(context)
+
+        for c in self.pending_and_active_duplicates[context]:
+            pending_executions = deque([(action, c.situation_link)])
+            while not pending_executions.empty():
+                a, s = pending_executions.popleft()
+                resulting_contexts = a.execute(self.datastore, s)
+                for r in resulting_contexts:
+                    # TODO: normally we might worry that r == c and we'd modify
+                    # pending_and_active_duplicates[c] accidentally. But that can't happen,
+                    # since c is in self.memoized_contexts at this point, so we're not
+                    # modifying a list we're iterating over. What _could_ happen, though
+                    # is that r might be generated from itself (or some other more complicated
+                    # cycle could occur), sticking us in an infinite loop. This might be a
+                    # natural place to insert some safeguards against inflooping.
+                    if r in self.memoized_contexts:
+                        pending_executions.pushright((self.memoized_contexts[r], r.situation_link))
+                    else:
+                        self.prepare_or_duplicate_context(r)
+
+        del self.pending_and_active_duplicates[context]
+
+
+class UserInterface(cmd.Cmd):
+    intro = "What is your root question?"
+    prompt = "> "
+    def __init__(self, datastore, scheduler):
+        self.datastore = datastore
+        self.scheduler = scheduler
+        self.current_workspace = None
+
+    def default(self, line):
+        if self.current_workspace is None:
+            answer_link = self.datastore.make_promise()
+            question_link = self.datastore.insert(Question([line], answer_link))
+            situation = Situation(scratchpad_link=datastore.EMPTY, question_link=question_link)
+            situation_link = self.datastore.insert(situation)
+            new_context = Context(situation_link, situation.links(), datastore)
+            self.scheduler.prepare_or_duplicate_context(new_context)
+            self.current_workspace = self.scheduler.choose_and_activate_context()
+        else:
+            return super().default(line)
+
+    def precmd(self, line):
+        print("---")
+
+        return line
+
+    def postloop(self):
+        if self.current_workspace is None:
+            return
+        else:
+            print(self.current_workpace)
+
+    def postcmd(self, stop, line):
+        self.prompt = str(self.current_workspace + "\n" + UserInterface.prompt)
+        return stop
+
+    def emptyline(self):
+        pass
+
+    def do_ask(self, arg):
+
+
+
+def main(argv):
+    pass
+
+if __name__ == "__main__":
+    main(sys.argv)
 
