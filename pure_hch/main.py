@@ -84,13 +84,13 @@ class Question(RawHypertext):
     def links(self):
         return [self.answer_link] + super().links()
 
-    def to_str(self, pointer_display_map=None):
+    def to_str(self, pointer_display_map=None, display_answer=True):
         return "{} : {}".format(
-            super().to_str(pointer_display_map=pointer_display_map),
-            format_chunk(self.answer_link, pointer_display_map))
+                super().to_str(pointer_display_map=pointer_display_map),
+                format_chunk(self.answer_link, pointer_display_map))
 
 
-class Situation(Hypertext):
+class Workspace(Hypertext):
     def __init__(self,
                  predecessor=None,
                  question_link=None,
@@ -360,13 +360,13 @@ class AskSubQuestion(Action):
 
         # 3. Create and insert a situation based on the passed in situation
         # and the question we've created
-        successor_situation = Situation(predecessor=situation, subquestion_link=new_question_link)
+        successor_situation = Workspace(predecessor=situation, subquestion_link=new_question_link)
         successor_situation_link = datastore.insert(successor_situation)
         mapped_unlocked_locations = self.context.map_unlocked_locations(situation, datastore)
         mapped_unlocked_locations.append(new_question_link)
 
         # 4. Also create and insert a situation for the subquestion.
-        subquestion_situation = Situation(
+        subquestion_situation = Workspace(
             question_link=new_question_link, scratchpad_link=datastore.EMPTY)
         subquestion_situation_link = datastore.insert(subquestion_situation)
 
@@ -472,7 +472,8 @@ class UserInterface(cmd.Cmd):
         if self.current_workspace is None:
             answer_link = self.datastore.make_promise()
             question_link = self.datastore.insert(Question([line], answer_link))
-            situation = Situation(scratchpad_link=self.datastore.EMPTY, question_link=question_link)
+            self.root_question = question_link
+            situation = Workspace(scratchpad_link=self.datastore.EMPTY, question_link=question_link)
             situation_link = self.datastore.insert(situation)
             new_context = Context(situation_link, situation.links(), self.datastore)
             self.scheduler.schedule_context(new_context)
@@ -489,7 +490,9 @@ class UserInterface(cmd.Cmd):
         if self.current_workspace is None:
             return
         else:
-            print(self.current_workpace)
+            question = self.datastore.dereference(self.root_question)
+            answer_link = question.answer_link
+            print(question.to_str(pointer_display_map={answer_link: self.datastore.dereference(answer_link)}))
 
     def postcmd(self, stop, line):
         self.prompt = str(self.current_workspace) + "\n" + UserInterface.prompt
@@ -508,7 +511,10 @@ class UserInterface(cmd.Cmd):
         """Provide an answer to this question."""
         action = AnswerQuestion(self.current_workspace, parse_chunks(arg))
         self.scheduler.resolve_action(self.current_workspace, action)
-        self.current_workspace = self.scheduler.choose_context()
+        try:
+            self.current_workspace = self.scheduler.choose_context()
+        except IndexError:
+            return True
 
     def do_unlock(self, arg):
         """Unlock a pointer"""
