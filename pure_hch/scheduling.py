@@ -74,9 +74,9 @@ class Context(object):
 
         workspace_root = db.dereference(workspace_link)
         if workspace_root.predecessor_link is not None:
-            assign(workspace_root.predecessor_link, "$p")
-        assign(workspace_root.question_link, "$q")
-        assign(workspace_root.scratchpad_link, "$s")
+            assign(workspace_root.predecessor_link, "$predecessor")
+        assign(workspace_root.question_link, "$question")
+        assign(workspace_root.scratchpad_link, "$scratchpad")
 
         for i, subquestion in enumerate(workspace_root.subquestions, start=1):
             # Pyre doesn't like tuple destructuring in loops apparently.
@@ -101,9 +101,10 @@ class Context(object):
             workspace_link: Address,
             db: Datastore,
             ) -> Set[Address]:
-        result = set(link for (_, link) in self._zip_unlocked_with_workspace(self.workspace_link, db))
-        result.remove(self.workspace_link)
-        result.add(workspace_link)
+        for mylink, link in self._zip_unlocked_with_workspace(workspace_link, db):
+            print("Mine ", mylink, "new ", link)
+
+        result = set(link for (_, link) in self._zip_unlocked_with_workspace(workspace_link, db))
         return result
 
     def name_pointers_for_workspace(
@@ -242,6 +243,7 @@ class AskSubquestion(Action):
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
                 current_workspace_link, db))
+        new_unlocked_locations.remove(current_workspace_link)
         new_unlocked_locations.add(subquestion_link)
         new_unlocked_locations.add(successor_workspace_link)
 
@@ -326,11 +328,14 @@ class Scratch(Action):
             context: Context,
             current_workspace_link: Address,
             ) -> Tuple[Optional[Context], List[Context]]:
+
         new_scratchpad_link = insert_raw_hypertext(
                 self.scratch_text,
                 db,
                 context.name_pointers_for_workspace(current_workspace_link, db))
+
         current_workspace = db.dereference(current_workspace_link)
+
         successor_workspace = Workspace(
                 current_workspace.question_link,
                 current_workspace.answer_promise,
@@ -338,13 +343,17 @@ class Scratch(Action):
                 new_scratchpad_link,
                 current_workspace.subquestions,
                 predecessor_link=current_workspace_link)
+
         successor_workspace_link = db.insert(successor_workspace)
         print("Old unlocked locations: ", context.unlocked_locations)
-        print("New unlocked locations: ", context.unlocked_locations_from_workspace(successor_workspace_link, db))
+        print("New unlocked locations: ", context.unlocked_locations_from_workspace(current_workspace_link, db))
+        print("New scratchpad link: ", new_scratchpad_link)
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
-                successor_workspace_link,
+                current_workspace_link,
                 db))
+        new_unlocked_locations.remove(current_workspace_link)
+        new_unlocked_locations.add(successor_workspace_link)
         new_unlocked_locations.add(new_scratchpad_link)
 
         return (

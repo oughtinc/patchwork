@@ -5,7 +5,7 @@ import parsy
 from .datastore import Address, Datastore
 from .hypertext import RawHypertext
 
-link = parsy.regex(r"\$(p|q|s|[awq]?[1-9][0-9]*)")
+link = parsy.regex(r"\$(predecessor|question|scratchpad|[awq]?[1-9][0-9]*)")
 otherstuff = parsy.regex(r"[^\[\$\]]+")
 
 lbrack = parsy.string("[")
