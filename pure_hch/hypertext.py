@@ -53,13 +53,15 @@ class Workspace(Hypertext):
     def __init__(
             self,
             question_link: Address,
-            answer_link: Address,
+            answer_promise: Address,
+            final_workspace_promise: Address,
             scratchpad_link: Address,
             subquestions: List[Subquestion],
             predecessor_link: Optional[Address]=None,
             ) -> None:
         self.question_link = question_link
-        self.answer_link = answer_link
+        self.answer_promise = answer_promise
+        self.final_workspace_promise = final_workspace_promise
         self.scratchpad_link = scratchpad_link
         self.subquestions = subquestions
         self.predecessor_link = predecessor_link
@@ -74,13 +76,24 @@ class Workspace(Hypertext):
             result.extend([q, a, w])
         return result
 
-
-def new_subquestion(datastore: Datastore, contents: List[HypertextFragment]) -> Subquestion:
-    question_link = datastore.insert(RawHypertext(contents))
-    answer_link = datastore.make_promise()
-    scratchpad_link = datastore.insert(RawHypertext([]))
-    subquestions: List[Subquestion] = []
-    final_workspace_link = datastore.insert(
-            Workspace(question_link, answer_link, scratchpad_link, subquestions, predecessor_link=None))
-    return (question_link, answer_link, final_workspace_link)
+    def to_str(self, display_map: Optional[Dict[Address, str]]=None) -> str:
+        builder = []
+        if self.predecessor_link is not None:
+            if display_map is None:
+                predecessor = str(self.predecessor_link)
+            else:
+                predecessor = display_map[self.predecessor_link]
+            builder.append("Predecessor: {}".format(predecessor))
+        if display_map is None:
+            question = str(self.question_link)
+            scratchpad = str(self.scratchpad_link)
+            subquestions = str(self.subquestions)
+        else:
+            question = display_map[self.question_link]
+            scratchpad = display_map[self.scratchpad_link]
+            subquestions = "\n".join("{}.\n  {},\n  {},\n  {}".format(i, display_map[q], display_map[a], display_map[w]) for i, (q, a, w) in enumerate(self.subquestions, start=1))
+        builder.append("Question: {}")
+        builder.append("Scratchpad: {}")
+        builder.append("Subquestions: {}")
+        return "\n".join(builder)
 

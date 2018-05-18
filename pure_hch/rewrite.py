@@ -8,10 +8,10 @@ from .interface import UserInterface
 
 
 def main(argv):
-    d = Datastore()
-    s = Scheduler()
-    i = UserInterface(d, s)
-    i.cmdloop()
+    db = Datastore()
+    sched = Scheduler(db)
+    ui = UserInterface(db, sched)
+    ui.cmdloop()
 
 if __name__ == "__main__":
     main(sys.argv)

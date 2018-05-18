@@ -6,9 +6,9 @@ from typing import Any, List, Dict
 # REVISIT: Plausibly this should be generic over the addressed
 # content.
 class Address(object):
-    def __init__(self, datastore: "Datastore") -> None:
+    def __init__(self, db: "Datastore") -> None:
         self.location = uuid.uuid1()
-        self.datastore = datastore
+        self.db = db
 
     def __hash__(self) -> int:
         return hash(self.location)
@@ -19,10 +19,7 @@ class Address(object):
         return self.location == other.location
 
     def __str__(self) -> str:
-        # REVISIT: This is kind of a hack
-        if self.datastore.is_canonical(self):
-            return "${}".format(str(self.location))
-        return str(self.datastore.canonicalize(self))
+        return repr(self)
 
     def __repr__(self) -> str:
         return "Address({})".format(self.location)

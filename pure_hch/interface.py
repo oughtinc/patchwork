@@ -9,9 +9,9 @@ class UserInterface(cmd.Cmd):
     intro = "What is your root question?"
     prompt = "> "
 
-    def __init__(self, datastore: Datastore, scheduler: Scheduler) -> None:
+    def __init__(self, db: Datastore, scheduler: Scheduler) -> None:
         super().__init__()
-        self.datastore = datastore
+        self.db = db
         self.scheduler = scheduler
         self.current_context: Optional[Context] = None
 
