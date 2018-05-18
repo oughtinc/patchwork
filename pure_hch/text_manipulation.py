@@ -48,7 +48,8 @@ def recursively_insert_hypertext(
         db: Datastore,
         pointer_link_map: Dict[str, Address]
         ) -> Address:
-    return db.insert(recursively_create_hypertext(pieces, db, pointer_link_map))
+    result = db.insert(recursively_create_hypertext(pieces, db, pointer_link_map))
+    return result
 
 
 def insert_raw_hypertext(

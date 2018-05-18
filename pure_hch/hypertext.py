@@ -1,3 +1,5 @@
+import textwrap
+
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 from .datastore import Address, Datastore
@@ -83,7 +85,8 @@ class Workspace(Hypertext):
                 predecessor = str(self.predecessor_link)
             else:
                 predecessor = display_map[self.predecessor_link]
-            builder.append("Predecessor: {}".format(predecessor))
+            builder.append("Predecessor:")
+            builder.append(textwrap.indent(predecessor, "  "))
         if display_map is None:
             question = str(self.question_link)
             scratchpad = str(self.scratchpad_link)
@@ -92,8 +95,11 @@ class Workspace(Hypertext):
             question = display_map[self.question_link]
             scratchpad = display_map[self.scratchpad_link]
             subquestions = "\n".join("{}.\n  {},\n  {},\n  {}".format(i, display_map[q], display_map[a], display_map[w]) for i, (q, a, w) in enumerate(self.subquestions, start=1))
-        builder.append("Question: {}")
-        builder.append("Scratchpad: {}")
-        builder.append("Subquestions: {}")
+        builder.append("Question:")
+        builder.append(textwrap.indent(question, "  "))
+        builder.append("Scratchpad:")
+        builder.append(textwrap.indent(scratchpad, "  "))
+        builder.append("Subquestions:")
+        builder.append(textwrap.indent(subquestions, "  "))
         return "\n".join(builder)
 

@@ -61,7 +61,6 @@ class Datastore(object):
 
     def insert(self, content: Any) -> Address:
         if content in self.canonical_addresses:
-            print("duplicate")
             return self.canonical_addresses[content]
 
         address = self.make_promise()

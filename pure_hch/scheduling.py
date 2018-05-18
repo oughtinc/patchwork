@@ -29,16 +29,6 @@ class Context(object):
                     [q for q, a, w in workspace.subquestions] +
                     ([workspace.predecessor_link] if workspace.predecessor_link else []))
 
-        print()
-        print("workspace ", workspace_link)
-        print("predecessor ", workspace.predecessor_link)
-        print("question ", workspace.question_link)
-        print("scratchpad ", workspace.scratchpad_link)
-        print("subquestions ", workspace.subquestions)
-        print("unlocked ", self.unlocked_locations)
-        print()
-
-
         self.pointer_names, self.name_pointers = self._name_pointers(self.workspace_link, db)
         self.display = self.to_str(db)
 
@@ -78,7 +68,7 @@ class Context(object):
         assign(workspace_root.question_link, "$question")
         assign(workspace_root.scratchpad_link, "$scratchpad")
 
-        for i, subquestion in enumerate(workspace_root.subquestions, start=1):
+        for i, subquestion in reversed(list(enumerate(workspace_root.subquestions, start=1))):
             # Pyre doesn't like tuple destructuring in loops apparently.
             q, a, w = subquestion
             assign(q, "$q{}".format(i))
@@ -91,7 +81,7 @@ class Context(object):
             for visible_link in your_page.links():
                 if visible_link not in pointers:
                     count += 1
-                    assign(your_link, "${}".format(count))
+                    assign(visible_link, "${}".format(count))
 
         return pointers, backward_pointers
 
@@ -101,9 +91,6 @@ class Context(object):
             workspace_link: Address,
             db: Datastore,
             ) -> Set[Address]:
-        for mylink, link in self._zip_unlocked_with_workspace(workspace_link, db):
-            print("Mine ", mylink, "new ", link)
-
         result = set(link for (_, link) in self._zip_unlocked_with_workspace(workspace_link, db))
         return result
 
@@ -117,7 +104,7 @@ class Context(object):
 
     def to_str(self, db: Datastore) -> str:
         INLINE_FMT = "[{pointer_name}: {content}]"
-        CONTEXT_FMT = "{predecessor}\n\n{question}\n\n{scratchpad}\n\n{subquestions}\n"
+        CONTEXT_FMT = "{predecessor}\n{question}\n{scratchpad}\n{subquestions}\n"
 
         # We need to construct this string in topological order since pointers
         # are substrings of other unlocked pointers. Since everything is immutable
@@ -217,12 +204,17 @@ class AskSubquestion(Action):
                 self.question_text,
                 db,
                 context.name_pointers_for_workspace(current_workspace_link, db))
+        print("question text: ", db.dereference(subquestion_link))
 
         answer_link = db.make_promise()
         final_sub_workspace_link = db.make_promise()
+
         scratchpad_link = insert_raw_hypertext("", db, {})
         sub_workspace = Workspace(subquestion_link, answer_link, final_sub_workspace_link, scratchpad_link, [])
         sub_workspace_link = db.insert(sub_workspace)
+
+        print("question text from sub workspace: ", db.dereference(sub_workspace.question_link))
+        print("question text from sub workspace link: ", db.dereference(db.dereference(sub_workspace_link).question_link))
 
 
         current_workspace = db.dereference(current_workspace_link)
@@ -237,9 +229,6 @@ class AskSubquestion(Action):
                 predecessor_link=current_workspace_link)
 
         successor_workspace_link = db.insert(successor_workspace)
-
-        print("Old unlocked locations: ", context.unlocked_locations)
-        print("New unlocked locations: ", context.unlocked_locations_from_workspace(successor_workspace_link, db))
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
                 current_workspace_link, db))
@@ -284,7 +273,10 @@ class Reply(Action):
                 current_workspace.final_workspace_promise,
                 current_workspace)
 
-        return (None, answer_successors + workspace_successors)
+        all_successors = [Context(args[0], db, args[1])
+                for args in answer_successors + workspace_successors]
+
+        return (None, all_successors)
 
 
 class Unlock(Action):
@@ -308,13 +300,12 @@ class Unlock(Action):
 
         new_unlocked_locations.add(pointer_address)
 
-        successor_context = Context(
-                current_workspace_link, db, unlocked_locations=new_unlocked_locations)
+        successor_context_args = (current_workspace_link, new_unlocked_locations)
 
         if db.is_fulfilled(pointer_address):
-            return (None, [successor_context])
+            return (None, [Context(successor_context_args[0], db, successor_context_args[1])])
 
-        db.register_promisee(pointer_address, successor_context)
+        db.register_promisee(pointer_address, successor_context_args)
         return (None, [])
 
 
@@ -345,9 +336,6 @@ class Scratch(Action):
                 predecessor_link=current_workspace_link)
 
         successor_workspace_link = db.insert(successor_workspace)
-        print("Old unlocked locations: ", context.unlocked_locations)
-        print("New unlocked locations: ", context.unlocked_locations_from_workspace(current_workspace_link, db))
-        print("New scratchpad link: ", new_scratchpad_link)
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
                 current_workspace_link,
@@ -373,16 +361,11 @@ class Scheduler(object):
 
     def ask_root_question(self, contents: str) -> None:
         question_link = insert_raw_hypertext(contents, self.db, {})
-        print("$Q: ", question_link)
         answer_link = self.db.make_promise()
-        print("$A: ", answer_link)
         final_workspace_link = self.db.make_promise()
-        print("$F: ", final_workspace_link)
         scratchpad_link = insert_raw_hypertext("", self.db, {})
-        print("$S: ", scratchpad_link)
         new_workspace = Workspace(question_link, answer_link, final_workspace_link, scratchpad_link, [])
         new_workspace_link = self.db.insert(new_workspace)
-        print("$W: ", new_workspace_link)
         self.pending_contexts.append(Context(new_workspace_link, self.db))
 
     def resolve_action(self, context: Context, action: Action) -> None:
@@ -397,8 +380,12 @@ class Scheduler(object):
         self.pending_contexts.extend(resulting_contexts[1])
 
     def choose_context(self) -> Context:
+        import textwrap
+        print("pending: ", "\n  ---\n".join([textwrap.indent(str(c), "  ") for c in self.pending_contexts]))
         while self.pending_contexts[0] in self.cache:
+            print("pending: ", "\n  ---\n".join([textwrap.indent(str(c), "  ") for c in self.pending_contexts]))
             pending_context = self.pending_contexts.popleft()
+            print("executing ", self.cache[pending_context])
             self.execute_action(pending_context, self.cache[pending_context])
 
         return self.pending_contexts.popleft()
