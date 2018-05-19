@@ -186,10 +186,16 @@ class Action(object):
         # otherwise it should be last.
         raise NotImplementedError("Action is pure virtual")
 
+    def branches_contexts(self):
+        raise NotImplementedError("Action is pure virtual")
+
 
 class AskSubquestion(Action):
     def __init__(self, question_text: str) -> None:
         self.question_text = question_text
+
+    def branches_contexts(self):
+        return False
 
     def execute(
             self,
@@ -248,6 +254,9 @@ class Reply(Action):
     def __init__(self, reply_text: str) -> None:
         self.reply_text = reply_text
 
+    def branches_contexts(self):
+        return True
+
     def execute(
             self,
             db: Datastore,
@@ -287,6 +296,9 @@ class Unlock(Action):
     def __init__(self, unlock_text: str) -> None:
         self.unlock_text = unlock_text
 
+    def branches_contexts(self):
+        return True
+
     def execute(
             self,
             db: Datastore,
@@ -322,6 +334,9 @@ class Unlock(Action):
 class Scratch(Action):
     def __init__(self, scratch_text: str) -> None:
         self.scratch_text = scratch_text
+
+    def branches_contexts(self):
+        return False
 
     def execute(
             self,
@@ -366,35 +381,64 @@ class Scratch(Action):
 
 
 class Scheduler(object):
-    def __init__(self, db: Datastore) -> None:
+    def __init__(self, initial_question: str, db: Datastore) -> None:
         self.db = db
-        self.pending_contexts: Deque[Context] = deque()
-        self.cache: Dict[Context, Action] = {}
 
-    def ask_root_question(self, contents: str) -> None:
+        # The scheduler is, at almost any moment, in the middle
+        # of a non-branching sequence of actions.
+
+        # There should always be a current context, a last branching context
+        # (which can be the same), and a list of actions that have been taken
+        # since the last branching context.
+        self.last_branching_context = self.ask_root_question(initial_question)
+        self.current_context: Optional[Context] = self.last_branching_context
+        self.unbranched_actions: List[Action] = []
+        self.cache: Dict[Context, List[Action]] = {}
+        self.branches: Deque[Context] = deque()
+
+    def ask_root_question(self, contents: str) -> Context:
         question_link = insert_raw_hypertext(contents, self.db, {})
         answer_link = self.db.make_promise()
         final_workspace_link = self.db.make_promise()
         scratchpad_link = insert_raw_hypertext("", self.db, {})
         new_workspace = Workspace(question_link, answer_link, final_workspace_link, scratchpad_link, [])
         new_workspace_link = self.db.insert(new_workspace)
-        self.pending_contexts.append(Context(new_workspace_link, self.db))
+        return Context(new_workspace_link, self.db)
 
-    def resolve_action(self, context: Context, action: Action) -> None:
-        self.cache[context] = action
-        self.execute_action(context, action)
+    def resolve_action(self, action: Action) -> None:
+        self.unbranched_actions.append(action)
+        if action.branches_contexts():
+            self.execute_branching_action(action)
+        else:
+            self.execute_nonbranching_action(action)
 
-    def execute_action(self, context: Context, action: Action) -> None:
-        resulting_contexts = action.execute(self.db, context, context.workspace_link)
-        if resulting_contexts[0] is not None:
-            self.pending_contexts.appendleft(resulting_contexts[0])
+    def execute_nonbranching_action(self, action: Action) -> None:
+        if self.current_context is None:
+            raise ValueError("No context")
+        self.current_context, others = action.execute(
+                self.db, self.current_context, self.current_context.workspace_link)
+        self.branches.extend(others)
 
-        self.pending_contexts.extend(resulting_contexts[1])
+    def execute_branching_action(self, action: Action) -> None:
+        assert self.current_context is not None
+        self.cache[self.last_branching_context] = self.unbranched_actions
 
-    def choose_context(self) -> Context:
+        _, branches = action.execute(
+                self.db, self.current_context, self.current_context.workspace_link)
 
-        while self.pending_contexts[0] in self.cache:
-            pending_context = self.pending_contexts.popleft()
-            self.execute_action(pending_context, self.cache[pending_context])
+        self.branches.extend(branches)
 
-        return self.pending_contexts.popleft()
+        while len(self.branches) > 0 and self.branches[0] in self.cache:
+            next_context = self.branches.popleft()
+            for next_action in self.cache[next_context]:
+                successor, others = next_action.execute(self.db, next_context, next_context.workspace_link)
+                self.branches.extend(others)
+                if successor is None:
+                    break
+                next_context = successor
+        
+        if len(self.branches) == 0:
+            self.current_context = None
+        else:
+            self.current_context = self.branches.popleft()
+            self.last_branching_context = self.current_context
