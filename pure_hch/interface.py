@@ -15,6 +15,7 @@ class UserInterface(cmd.Cmd):
         self.db = db
         self.scheduler = scheduler
         self.initial_context = scheduler.current_context
+        assert self.initial_context is not None
         self.answer_promise = self.db.dereference(self.initial_context.workspace_link).answer_promise
         self.update_prompt()
 

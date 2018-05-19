@@ -197,6 +197,16 @@ class AskSubquestion(Action):
     def branches_contexts(self):
         return False
 
+    def would_introduce_cycle(self, db: Datastore, current_workspace: Workspace, sub_workspace: Workspace) -> bool:
+        workspace = sub_workspace
+        while workspace.parent_link is not None:
+            workspace = db.dereference(workspace.parent_link)
+            if workspace.question_link == sub_workspace.question_link:
+                return True
+        if workspace.question_link == sub_workspace.question_link:
+            return True
+        return False
+
     def execute(
             self,
             db: Datastore,
@@ -218,11 +228,18 @@ class AskSubquestion(Action):
                 answer_link,
                 final_sub_workspace_link,
                 scratchpad_link,
-                [])
+                [],
+                current_workspace_link)
         sub_workspace_link = db.insert(sub_workspace)
         sub_workspace = db.dereference(sub_workspace_link) # in case our copy was actually clobbered.
 
         current_workspace = db.dereference(current_workspace_link)
+
+        if self.would_introduce_cycle(db, current_workspace, sub_workspace):
+            # REVISIT: In unusually bad cases this might put the scheduler into a weird state. I'm not
+            # sure whether that's possible or not.
+            raise ValueError("Taking this action would introduce a cycle into the dependency graph")
+
         new_subquestions = (current_workspace.subquestions +
                 [(subquestion_link, sub_workspace.answer_promise, sub_workspace.final_workspace_promise)])
         successor_workspace = Workspace(
@@ -231,13 +248,14 @@ class AskSubquestion(Action):
                 current_workspace.final_workspace_promise,
                 current_workspace.scratchpad_link,
                 new_subquestions,
+                current_workspace.parent_link,
                 predecessor_link=current_workspace_link)
 
         successor_workspace_link = db.insert(successor_workspace)
         successor_workspace = db.dereference(successor_workspace_link)
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
-                current_workspace_link, db))
+            current_workspace_link, db))
         new_unlocked_locations.remove(current_workspace_link)
         new_unlocked_locations.add(subquestion_link)
         new_unlocked_locations.add(successor_workspace_link)
@@ -358,6 +376,7 @@ class Scratch(Action):
                 current_workspace.final_workspace_promise,
                 new_scratchpad_link,
                 current_workspace.subquestions,
+                current_workspace.parent_link,
                 predecessor_link=current_workspace_link)
 
         successor_workspace_link = db.insert(successor_workspace)
