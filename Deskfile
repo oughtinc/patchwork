@@ -1,0 +1,2 @@
+source env/bin/activate
+export MYPYPATH=$VIRTUAL_ENV/lib/python3.6/site-packages

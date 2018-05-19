@@ -59,7 +59,6 @@ class Workspace(Hypertext):
             final_workspace_promise: Address,
             scratchpad_link: Address,
             subquestions: List[Subquestion],
-            parent_link: Optional[Address]=None,
             predecessor_link: Optional[Address]=None,
             ) -> None:
         self.question_link = question_link
@@ -68,7 +67,6 @@ class Workspace(Hypertext):
         self.scratchpad_link = scratchpad_link
         self.subquestions = subquestions
         self.predecessor_link = predecessor_link
-        self.parent_link = parent_link
 
     def links(self) -> List[Address]:
         result = []
