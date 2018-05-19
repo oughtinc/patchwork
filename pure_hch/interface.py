@@ -23,7 +23,7 @@ class UserInterface(cmd.Cmd):
         self.prompt = "{}\n{}".format(str(self.scheduler.current_context), UserInterface.prompt)
 
     def precmd(self, line: str) -> str:
-        print("---")
+        print("-" * 80)
         return line
 
     def emptyline(self) -> bool:

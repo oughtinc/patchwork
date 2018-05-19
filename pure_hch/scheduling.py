@@ -197,14 +197,13 @@ class AskSubquestion(Action):
     def branches_contexts(self):
         return False
 
-    def would_introduce_cycle(self, db: Datastore, current_workspace: Workspace, sub_workspace: Workspace) -> bool:
-        workspace = sub_workspace
-        while workspace.parent_link is not None:
-            workspace = db.dereference(workspace.parent_link)
+    def would_introduce_cycle(self, db: Datastore, sub_workspace: Workspace) -> bool:
+        workspace_link: Optional[Address] = sub_workspace.parent_link
+        while workspace_link is not None:
+            workspace = db.dereference(workspace_link)
             if workspace.question_link == sub_workspace.question_link:
                 return True
-        if workspace.question_link == sub_workspace.question_link:
-            return True
+            workspace_link = workspace.parent_link
         return False
 
     def execute(
@@ -230,15 +229,15 @@ class AskSubquestion(Action):
                 scratchpad_link,
                 [],
                 current_workspace_link)
-        sub_workspace_link = db.insert(sub_workspace)
-        sub_workspace = db.dereference(sub_workspace_link) # in case our copy was actually clobbered.
-
         current_workspace = db.dereference(current_workspace_link)
 
-        if self.would_introduce_cycle(db, current_workspace, sub_workspace):
+        if self.would_introduce_cycle(db, sub_workspace):
             # REVISIT: In unusually bad cases this might put the scheduler into a weird state. I'm not
             # sure whether that's possible or not.
             raise ValueError("Taking this action would introduce a cycle into the dependency graph")
+
+        sub_workspace_link = db.insert(sub_workspace)
+        sub_workspace = db.dereference(sub_workspace_link) # in case our copy was actually clobbered.
 
         new_subquestions = (current_workspace.subquestions +
                 [(subquestion_link, sub_workspace.answer_promise, sub_workspace.final_workspace_promise)])
