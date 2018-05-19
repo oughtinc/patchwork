@@ -15,6 +15,7 @@ class UserInterface(cmd.Cmd):
         self.db = db
         self.scheduler = scheduler
         self.initial_context = scheduler.current_context
+        self.answer_promise = self.db.dereference(self.initial_context.workspace_link).answer_promise
         self.update_prompt()
 
     def update_prompt(self) -> None:
@@ -41,9 +42,9 @@ class UserInterface(cmd.Cmd):
             print("Encountered an error with your command: ")
             print(v)
 
-        if self.scheduler.current_context is None:
+        if self.db.is_fulfilled(self.answer_promise):
             print("The initial context was:\n {}".format(self.initial_context))
-            print("The final answer is:\n {}".format(self.db.dereference(self.db.dereference(self.initial_context.workspace_link).answer_promise)))
+            print("The final answer is:\n {}".format(self.db.dereference(self.answer_promise)))
             return True
 
         return False

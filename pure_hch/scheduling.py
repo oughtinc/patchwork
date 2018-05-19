@@ -429,7 +429,7 @@ class Scheduler(object):
         self.branches.extend(branches)
 
         while len(self.branches) > 0 and self.branches[0] in self.cache:
-            next_context = self.branches.popleft()
+            next_context = self.branches.pop()
             for next_action in self.cache[next_context]:
                 successor, others = next_action.execute(self.db, next_context, next_context.workspace_link)
                 self.branches.extend(others)
@@ -440,5 +440,5 @@ class Scheduler(object):
         if len(self.branches) == 0:
             self.current_context = None
         else:
-            self.current_context = self.branches.popleft()
+            self.current_context = self.branches.pop()
             self.last_branching_context = self.current_context
