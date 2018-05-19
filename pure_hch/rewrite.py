@@ -10,7 +10,12 @@ from .interface import UserInterface
 def main(argv):
     db = Datastore()
     sched = Scheduler(db)
-    ui = UserInterface(db, sched)
+
+    print("What is your root question?")
+
+    sched.ask_root_question(input("> "))
+    initial_context = sched.choose_context()
+    ui = UserInterface(db, sched, initial_context)
     ui.cmdloop()
 
 if __name__ == "__main__":

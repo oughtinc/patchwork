@@ -1,4 +1,4 @@
-import textwrap
+from textwrap import indent
 
 from typing import Dict, List, Optional, Set, Tuple, Union
 
@@ -86,7 +86,7 @@ class Workspace(Hypertext):
             else:
                 predecessor = display_map[self.predecessor_link]
             builder.append("Predecessor:")
-            builder.append(textwrap.indent(predecessor, "  "))
+            builder.append(indent(predecessor, "  "))
         if display_map is None:
             question = str(self.question_link)
             scratchpad = str(self.scratchpad_link)
@@ -94,12 +94,17 @@ class Workspace(Hypertext):
         else:
             question = display_map[self.question_link]
             scratchpad = display_map[self.scratchpad_link]
-            subquestions = "\n".join("{}.\n  {},\n  {},\n  {}".format(i, display_map[q], display_map[a], display_map[w]) for i, (q, a, w) in enumerate(self.subquestions, start=1))
+            subquestions = "\n".join("{}.\n{},\n{},\n{}".format(
+                i,
+                indent(display_map[q], "  "),
+                indent(display_map[a], "  "),
+                indent(display_map[w], "  "),
+                ) for i, (q, a, w) in enumerate(self.subquestions, start=1))
         builder.append("Question:")
-        builder.append(textwrap.indent(question, "  "))
+        builder.append(indent(question, "  "))
         builder.append("Scratchpad:")
-        builder.append(textwrap.indent(scratchpad, "  "))
+        builder.append(indent(scratchpad, "  "))
         builder.append("Subquestions:")
-        builder.append(textwrap.indent(subquestions, "  "))
+        builder.append(indent(subquestions, "  "))
         return "\n".join(builder)
 

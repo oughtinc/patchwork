@@ -39,7 +39,12 @@ class Datastore(object):
         return address in self.content
 
     def canonicalize(self, address: Address) -> Address:
-        return self.aliases.get(address) or address
+        if address in self.aliases:
+            return self.aliases[address]
+        elif address in self.content or address in self.promises:
+            return address
+        else:
+            raise KeyError("Don't have that address")
 
     def make_promise(self) -> Address:
         address = Address(self)
@@ -50,6 +55,7 @@ class Datastore(object):
         self.promises[address].append(promisee)
 
     def resolve_promise(self, address: Address, content: Any) -> List[Any]:
+        assert address in self.promises, "{} not in promises".format(address)
         if content in self.canonical_addresses:
             self.aliases[address] = self.canonical_addresses[content]
         else:
