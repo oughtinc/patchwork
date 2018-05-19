@@ -40,7 +40,7 @@ A context can have four fields:
 #### Hypertext in contexts
 Contexts contain pointers, which can be thought of as links to pages in a web of
 hypertext. They are abstract references to data. A pointer can either
-be "locked" or "unlocked". Locked pointers appear as `$[id]`, where `[id]` is either
+be "locked" or "unlocked". Locked pointers appear as `$<id>`, where `<id>` is either
 a number, or a special identifier followed by a number. So `$12` is a locked pointer,
 `$q1` is the locked pointer to your first subquestion, `$a1` is the locked pointer to
 the first subquestion's answer, and `$w1` is the locked pointer to the workspace that
