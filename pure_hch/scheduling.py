@@ -35,17 +35,17 @@ class Context(object):
         self.pointer_names, self.name_pointers = self._name_pointers(self.workspace_link, db)
         self.display = self.to_str(db)
 
-    def _zip_unlocked_with_workspace(
+    def _map_over_unlocked_workspace(
             self,
             workspace_link: Address,
             db: Datastore,
-            ) -> Generator[Tuple[Address, Address], None, None]:
+            ) -> Generator[Address, None, None]:
         frontier = deque([(self.workspace_link, workspace_link)])
         seen = set(frontier)
         while len(frontier) > 0:
             my_link, your_link = frontier.popleft()
             if my_link in self.unlocked_locations:
-                yield (my_link, your_link)
+                yield your_link
                 my_page = db.dereference(my_link)
                 your_page = db.dereference(your_link)
                 for next_links in zip(my_page.links(), your_page.links()):
@@ -74,7 +74,7 @@ class Context(object):
             assign(w, "$w{}".format(i))
 
         count = 0
-        for my_link, your_link in self._zip_unlocked_with_workspace(workspace_link, db):
+        for your_link in self._map_over_unlocked_workspace(workspace_link, db):
             your_page = db.dereference(your_link)
             for visible_link in your_page.links():
                 if visible_link not in pointers:
@@ -89,7 +89,7 @@ class Context(object):
             workspace_link: Address,
             db: Datastore,
             ) -> Set[Address]:
-        result = set(link for (_, link) in self._zip_unlocked_with_workspace(workspace_link, db))
+        result = set(self._map_over_unlocked_workspace(workspace_link, db))
         return result
 
     def name_pointers_for_workspace(
@@ -109,7 +109,7 @@ class Context(object):
         # once created, we are guaranteed to have a DAG.
         include_counts: DefaultDict[Address, int] = defaultdict(int)
 
-        for _, link in self._zip_unlocked_with_workspace(self.workspace_link, db):
+        for link in self._map_over_unlocked_workspace(self.workspace_link, db):
             page = db.dereference(link)
             for visible_link in page.links():
                 include_counts[visible_link] += 1
@@ -401,7 +401,6 @@ class Scratch(Action):
 class Scheduler(object):
     def __init__(self, initial_question: str, db: Datastore) -> None:
         self.db = db
-
         # The scheduler is, at almost any moment, in the middle
         # of a non-branching sequence of actions.
 

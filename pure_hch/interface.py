@@ -42,6 +42,9 @@ class UserInterface(cmd.Cmd):
         except ValueError as v:
             print("Encountered an error with your command: ")
             print(v)
+        except KeyError as k:
+            print("Encountered an error with your command: ")
+            print(k)
 
         if self.db.is_fulfilled(self.answer_promise):
             print("The initial context was:\n {}".format(self.initial_context))
