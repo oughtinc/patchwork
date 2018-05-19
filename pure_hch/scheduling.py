@@ -424,29 +424,31 @@ class Scheduler(object):
         return Context(new_workspace_link, self.db)
 
     def resolve_action(self, action: Action) -> None:
-        self.unbranched_actions.append(action)
         if action.branches_contexts():
             self.execute_branching_action(action)
         else:
             self.execute_nonbranching_action(action)
 
     def execute_nonbranching_action(self, action: Action) -> None:
-        if self.current_context is None:
-            raise ValueError("No context")
+        assert self.current_context is not None
         self.current_context, others = action.execute(
                 self.db, self.current_context, self.current_context.workspace_link)
+        self.unbranched_actions.append(action)
         self.branches.extend(others)
 
     def execute_branching_action(self, action: Action) -> None:
         assert self.current_context is not None
-        self.cache[self.last_branching_context] = self.unbranched_actions
 
         _, branches = action.execute(
                 self.db, self.current_context, self.current_context.workspace_link)
+        self.unbranched_actions.append(action)
+
+        self.cache[self.last_branching_context] = self.unbranched_actions
+        self.unbranched_actions = []
 
         self.branches.extend(branches)
 
-        while len(self.branches) > 0 and self.branches[0] in self.cache:
+        while len(self.branches) > 0 and self.branches[-1] in self.cache:
             next_context = self.branches.pop()
             for next_action in self.cache[next_context]:
                 successor, others = next_action.execute(self.db, next_context, next_context.workspace_link)
