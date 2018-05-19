@@ -180,13 +180,12 @@ class Action(object):
             self,
             db: Datastore,
             context: Context,
-            current_workspace_link: Address,
             ) -> Tuple[Optional[Context], List[Context]]:
         # Successor context should be first if action is deterministic;
         # otherwise it should be last.
         raise NotImplementedError("Action is pure virtual")
 
-    def branches_contexts(self):
+    def predictable(self):
         raise NotImplementedError("Action is pure virtual")
 
 
@@ -194,20 +193,19 @@ class AskSubquestion(Action):
     def __init__(self, question_text: str) -> None:
         self.question_text = question_text
 
-    def branches_contexts(self):
-        return False
+    def predictable(self):
+        return True
 
     def execute(
             self,
             db: Datastore,
             context: Context,
-            current_workspace_link: Address,
             ) -> Tuple[Optional[Context], List[Context]]:
 
         subquestion_link = insert_raw_hypertext(
                 self.question_text,
                 db,
-                context.name_pointers_for_workspace(current_workspace_link, db))
+                context.name_pointers_for_workspace(context.workspace_link, db))
 
         answer_link = db.make_promise()
         final_sub_workspace_link = db.make_promise()
@@ -220,7 +218,7 @@ class AskSubquestion(Action):
                 scratchpad_link,
                 [],
                 )
-        current_workspace = db.dereference(current_workspace_link)
+        current_workspace = db.dereference(context.workspace_link)
 
         sub_workspace_link = db.insert(sub_workspace)
         sub_workspace = db.dereference(sub_workspace_link) # in case our copy was actually clobbered.
@@ -239,8 +237,8 @@ class AskSubquestion(Action):
         successor_workspace = db.dereference(successor_workspace_link)
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
-            current_workspace_link, db))
-        new_unlocked_locations.remove(current_workspace_link)
+            context.workspace_link, db))
+        new_unlocked_locations.remove(context.workspace_link)
         new_unlocked_locations.add(subquestion_link)
         new_unlocked_locations.add(successor_workspace_link)
 
@@ -256,22 +254,21 @@ class Reply(Action):
     def __init__(self, reply_text: str) -> None:
         self.reply_text = reply_text
 
-    def branches_contexts(self):
-        return True
+    def predictable(self):
+        return False
 
     def execute(
             self,
             db: Datastore,
             context: Context,
-            current_workspace_link: Address,
             ) -> Tuple[Optional[Context], List[Context]]:
 
-        current_workspace = db.dereference(current_workspace_link)
+        current_workspace = db.dereference(context.workspace_link)
 
         reply_hypertext = create_raw_hypertext(
                 self.reply_text,
                 db,
-                context.name_pointers_for_workspace(current_workspace_link, db))
+                context.name_pointers_for_workspace(context.workspace_link, db))
 
         # final_workspace_promise and answer_promise aren't in
         # workspace.links(), so this is fine (doesn't create
@@ -298,33 +295,32 @@ class Unlock(Action):
     def __init__(self, unlock_text: str) -> None:
         self.unlock_text = unlock_text
 
-    def branches_contexts(self):
-        return True
+    def predictable(self):
+        return False
 
     def execute(
             self,
             db: Datastore,
             context: Context,
-            current_workspace_link: Address,
             ) -> Tuple[Optional[Context], List[Context]]:
 
         try:
             pointer_address = context.name_pointers_for_workspace(
-                    current_workspace_link,
+                    context.workspace_link,
                     db
                     )[self.unlock_text]
         except KeyError:
             raise ValueError("{} is not visible in this context".format(self.unlock_text))
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
-                current_workspace_link, db))
+                context.workspace_link, db))
 
         if pointer_address in new_unlocked_locations:
             raise ValueError("{} is already unlocked.".format(self.unlock_text))
 
         new_unlocked_locations.add(pointer_address)
 
-        successor_context_args = (current_workspace_link, new_unlocked_locations)
+        successor_context_args = (context.workspace_link, new_unlocked_locations)
 
         if db.is_fulfilled(pointer_address):
             return (None, [Context(successor_context_args[0], db, successor_context_args[1])])
@@ -337,22 +333,21 @@ class Scratch(Action):
     def __init__(self, scratch_text: str) -> None:
         self.scratch_text = scratch_text
 
-    def branches_contexts(self):
-        return False
+    def predictable(self):
+        return True
 
     def execute(
             self,
             db: Datastore,
             context: Context,
-            current_workspace_link: Address,
             ) -> Tuple[Optional[Context], List[Context]]:
 
         new_scratchpad_link = insert_raw_hypertext(
                 self.scratch_text,
                 db,
-                context.name_pointers_for_workspace(current_workspace_link, db))
+                context.name_pointers_for_workspace(context.workspace_link, db))
 
-        current_workspace = db.dereference(current_workspace_link)
+        current_workspace = db.dereference(context.workspace_link)
 
         successor_workspace = Workspace(
                 current_workspace.question_link,
@@ -367,9 +362,9 @@ class Scratch(Action):
         successor_workspace = db.dereference(successor_workspace_link)
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
-                current_workspace_link,
+                context.workspace_link,
                 db))
-        new_unlocked_locations.remove(current_workspace_link)
+        new_unlocked_locations.remove(context.workspace_link)
         new_unlocked_locations.add(successor_workspace_link)
         new_unlocked_locations.add(new_scratchpad_link)
 
@@ -383,6 +378,10 @@ class Scratch(Action):
 
 
 class Scheduler(object):
+    # TODO
+    # The scheduler is the main thing that needs to be rethought to make it
+    # compatible with a webapp-style framework.
+    # It also currently does no cycle checking (see `does_action_produce_cycle`).
     def __init__(self, initial_question: str, db: Datastore) -> None:
         self.db = db
         # The scheduler is, at almost any moment, in the middle
@@ -406,24 +405,68 @@ class Scheduler(object):
         new_workspace_link = self.db.insert(new_workspace)
         return Context(new_workspace_link, self.db)
 
-    def resolve_action(self, action: Action) -> None:
-        if action.branches_contexts():
-            self.execute_branching_action(action)
-        else:
-            self.execute_nonbranching_action(action)
+    def does_action_produce_cycle(self, context: Context, action: Action) -> bool:
+        # TODO
 
-    def execute_nonbranching_action(self, action: Action) -> None:
+        # Hm. What kind of cycles actually matter?
+
+        # Budgets should circumvent this problem.
+
+        # It's actually fine to produce a subquestion that _looks_ identical to the 
+        # parent question, and in fact this is how automation can work at all.
+        # It's only not fine to produce a subquestion that _is_ the same as a parent
+        # question, down to... what, exactly? Obviously ending up with a workspace
+        # who's its own ancestor in the subquestion graph is bad. But you can end up
+        # with this situation in annoying ways.
+
+        # `A -> B [1] -> C -> B [2]` is fine.
+        # `A -> B -> C -> B` is not.
+
+        # But imagine you actually get `A -> (B, C)`, `B -> C`, and `C -> B`. You don't
+        # want to privelege `B -> C` or `C -> B` over the other. But in some sense you
+        # have to: You can't block actions, or else you have to sometimes show a user a
+        # random error message.
+
+        # So you have to present the temporally _second_ creator of `B -> C` or `C -> B`
+        # the error message immediately (this is an unfortunate but necessary "side channel").
+        # The problem that _this_ produces is that `C -> B` may be created _automatically_.
+
+        # Imagine that you have previously seen that `A -> B [(locked) 1] -> C`. So you stored
+        # that `B $1` produces `ask C`. But now you see that `C -> B [(locked) 2]`.
+        # `B [(locked) 2]` is a different workspace from `B $1`, so the naive workspace-based
+        # checking doesn't notice anything wrong until it tries to look at actions produced by
+        # `C`, at which time it's too late (since C has already been scheduled). There is now
+        # no way out of the trap.
+
+        # I _think_ that you instead need to do the checking based on contexts: When you perform
+        # an action, if you did all the automated steps this action implies, would you end up
+        # with any copies of your starting workspace?
+
+        # This implies a sort of automation-first approach that is pretty different from the
+        # original way I wrote the scheduler, and might produce a much slower user experience
+        # if the system gets big and highly automated.
+        
+        return False
+
+    def resolve_action(self, action: Action) -> None:
         assert self.current_context is not None
-        self.current_context, others = action.execute(
-                self.db, self.current_context, self.current_context.workspace_link)
+        if self.does_action_produce_cycle(self.current_context, action):
+            raise ValueError("Action would produce a cycle in the context graph")
+        if action.predictable():
+            self.execute_predictable_action(action)
+        else:
+            self.execute_unpredictable_action(action)
+
+    def execute_predictable_action(self, action: Action) -> None:
+        assert self.current_context is not None
+        self.current_context, others = action.execute(self.db, self.current_context)
         self.unbranched_actions.append(action)
         self.branches.extend(others)
 
-    def execute_branching_action(self, action: Action) -> None:
+    def execute_unpredictable_action(self, action: Action) -> None:
         assert self.current_context is not None
 
-        _, branches = action.execute(
-                self.db, self.current_context, self.current_context.workspace_link)
+        _, branches = action.execute(self.db, self.current_context)
         self.unbranched_actions.append(action)
 
         self.cache[self.last_branching_context] = self.unbranched_actions
@@ -434,7 +477,7 @@ class Scheduler(object):
         while len(self.branches) > 0 and self.branches[-1] in self.cache:
             next_context = self.branches.pop()
             for next_action in self.cache[next_context]:
-                successor, others = next_action.execute(self.db, next_context, next_context.workspace_link)
+                successor, others = next_action.execute(self.db, next_context)
                 self.branches.extend(others)
                 if successor is None:
                     break
