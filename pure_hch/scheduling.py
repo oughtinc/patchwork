@@ -445,6 +445,10 @@ class Scheduler(object):
         # This implies a sort of automation-first approach that is pretty different from the
         # original way I wrote the scheduler, and might produce a much slower user experience
         # if the system gets big and highly automated.
+
+        # It seems possible to me that sometimes there will be very counter-intuitive examples
+        # where taking an action would produce a cycle. I can't think of any, but I'm imagining
+        # it would involve complicated use of pointers and scratchpads.
         
         return False
 

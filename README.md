@@ -84,3 +84,61 @@ I want to ask three questions in sequence, I can pass the answer of the first
 to the second, and the answer of the second to the third, without unlocking anything,
 and without being put on hold.  When I unlock the third answer, my successor will not
 wake up until that answer is actually available.
+
+## Implementation Details
+
+The system is implemented using the following concepts. It is intended to
+serve as a model for a multi-user web app version, in which the database
+stores the contents of the datastore and the scheduler.
+
+### Content-addressed datastore
+
+The Datastore and Address classes are the mechanism used for lazily storing
+references to deduplicated data. Addresses are basically unique identifiers,
+while the datastore is used to keep track of both (a) what data exists, and
+(b) what data is pending (and who is waiting on it).
+
+When duplicate data is inserted, the address of the original data is returned.
+If a promise would be fulfilled with duplicate data, the promise is added to
+a list of aliases, such that anything that tries to refer to that promise will
+be redirected to the deduplicated data (even though their addres does not match
+the canonical address of that data).
+
+### Hypertext
+
+The datastore can be seen as an analogue for an HTTP server, and its contents
+can be seen as analogues for HTML pages with references to other pages on that
+server. Hypertext equality is based on the string that it gets converted to
+when printed (with any addresses "canonicalized" (replaced by the canonical
+value of their corresponding canonical address)).
+
+#### Workspaces
+
+A workspace is a structured hypertext object, that contains pointers to the
+data that's visible from a context: an optional predecessor, a question,
+a scratchpad, and a collection of subquestions with their answers and final
+workspaces.
+
+### Context
+
+A context is a view of a workspace that also contains a set of pointers that
+are unlocked in that context. The pointers that are unlocked are replaced
+in the textual representation by text in square brackets. By default, the
+workspace's question, scratchpad, and subquestions are unlocked.
+
+### Action
+
+Action objects represent the actions that can be taken by the user:
+There is one class for each action that can be taken.
+
+Actions are not taken immediately on creation; they are executed by the
+scheduler when the scheduler sees fit, making updates to the datastore
+and producing a new set of contexts.
+
+### Scheduler
+
+The scheduler is the part of the system that decides when to execute
+actions, and which context to show to which user and when. It also
+manages automation, by remembering contexts and taking its own
+actions under the assumption that the user is a pure function from
+context to action.
