@@ -11,8 +11,9 @@ this program implements:
 * One-shot question answering
 * Recursion
 * Pointers
-* A weak form of Reflection, in which workspaces can be passed around and
-   inspected, but certain actions are not reifiable (specifically pointer unlocking)
+* A weak form of reflection, in which workspaces can be passed around and
+   inspected, but actions are not reifiable and not always inferrable.
+   Specifically, pointer unlocking actions cannot be recovered.
 * Caching
 * Lazy Evaluation
 
@@ -70,16 +71,16 @@ that appears throughout the context, but is slightly different.
 
 In particular, expanded pointers in your hypertext should not have
 identifier prefixes. For example, you might
-`ask is the list [a [b [c [d]]]] sorted?`. Otherwise, the hypertext
-you construct is semantically identical to the hypertext in a context.
+`ask is the list [[a] [[b] [[c] [[d] []]]]] sorted?`. Otherwise, the hypertext
+you construct is syntactically identical to the hypertext in a context.
 
 The `unlock` action accepts a pointer exactly as it appears in the context:
 For example, `unlock $w1`.
 
-> NOTE: This system is _lazy_. This means that unlocking a context automatically
-puts the successor context on hold until the unlocked result is ready. However,
+> USAGE NOTE: This system is _lazy_. This means that unlocking a pointer automatically
+puts the successor context on hold until at least the unlocked result is ready. However,
 locked pointers can be _passed around_ arbitrarily before being unlocked. So if
 I want to ask three questions in sequence, I can pass the answer of the first
-to the second, and the answer of the second to the third, without unlocking anything.
-When I unlock the third answer, my successor will not wake up until that answer is
-actually available.
+to the second, and the answer of the second to the third, without unlocking anything,
+and without being put on hold.  When I unlock the third answer, my successor will not
+wake up until that answer is actually available.

@@ -413,7 +413,7 @@ class Scheduler(object):
         # Budgets should circumvent this problem.
 
         # It's actually fine to produce a subquestion that _looks_ identical to the 
-        # parent question, and in fact this is how automation can work at all.
+        # parent question, and in fact this is one way automation can work at all.
         # It's only not fine to produce a subquestion that _is_ the same as a parent
         # question, down to... what, exactly? Obviously ending up with a workspace
         # who's its own ancestor in the subquestion graph is bad. But you can end up
