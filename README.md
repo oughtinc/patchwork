@@ -61,7 +61,7 @@ Four actions can be taken in any context:
   `<scratchpad_contents>`.
 3. `unlock <pointer_id>`: Make a successor context that has
   the pointer `<pointer_id>` visible.
-4. `reply <response>`
+4. `reply <response>`: Answer the question with `<response>`
 
 #### Hypertext Syntax
 
