@@ -4,32 +4,61 @@ from collections import defaultdict, deque
 from textwrap import indent
 from typing import Callable, DefaultDict, Deque, Dict, Generator, List, Optional, Set, Tuple
 
-from .actions import Action
+from .actions import Action, PredictableAction, UnpredictableAction, SuperAction
 from .context import Context
 from .datastore import Datastore
 from .hypertext import Workspace
 
 from .text_manipulation import insert_raw_hypertext
 
+# What is the scheduler's job, what is the automator's job, and what is the session's job?
+# Well, it seems like the session should know which contexts are "active", at least, and
+# therefore which ones are available to be worked on.
+
+# The scheduler also needs to be responsible for coordinating automators, which means that
+# when a session records an action, the scheduler needs to check to see whether that action
+# will create a cycle, and only actually perform the action if it does not create a cycle.
+# This seems kind of scary since action execution (right now) can modify the state of the
+# database by fulfilling real promises. This cannot then be undone.  Maybe a better solution
+# here would be for action execution to return a representation of their effects instead.
+# I think promise fulfilment is the only scary thing here, though? Scratchpad editing seems
+# straightforwardly fine, asking subquestions is scary from the perspective of
+# "we might accidentally automate something that produces an infinite loop of subquestions" but
+# is not scary if you avoid that problem (you might end up with some uncollected garbage
+# in the datastore, but no infinite loops due to the workspace itself. Forgotten workspaces are
+# forgotten, and they don't prescribe any actions).
+
+# An automator clearly has to have a method which accepts a context and produces something.
+# Should it produce contexts? This seems plausible to me. However it could instead produce some
+# form of actions.
+
+class Automator(object):
+    def can_handle(self, context: Context) -> bool:
+        raise NotImplementedError("Automators must implement can_handle")
+
+    def handle(self, context: Context) -> List[Context]:
+        raise NotImplementedError("Automators must implement handle")
+
+class Memoizer(Automator):
+    def __init__(self):
+        self.cached_action_sequences: Dict[Context, SuperAction] = {}
+
+    def can_handle(self, context: Context) -> bool:
+        return context in self.cached_action_sequences
+
+    def handle(self, context: Context) -> List[Context]:
+        pass
+
+    def register_superaction(self, context: Context, action: SuperAction):
+        pass
+
 
 class Scheduler(object):
-    # TODO
-    # The scheduler is the main thing that needs to be rethought to make it
-    # compatible with a webapp-style framework.
-    # It also currently does no cycle checking (see `does_action_produce_cycle`).
-    def __init__(self, initial_question: str, db: Datastore) -> None:
+    def __init__(self, db: Datastore) -> None:
         self.db = db
-        # The scheduler is, at almost any moment, in the middle
-        # of a non-branching sequence of actions.
+        self.active_contexts: Set[Context] = set()
+        self.automators: List[Automator] = [Memoizer()]
 
-        # There should always be a current context, a last branching context
-        # (which can be the same), and a list of actions that have been taken
-        # since the last branching context.
-        self.last_branching_context = self.ask_root_question(initial_question)
-        self.current_context: Optional[Context] = self.last_branching_context
-        self.unbranched_actions: List[Action] = []
-        self.cache: Dict[Context, List[Action]] = {}
-        self.branches: Deque[Context] = deque()
 
     def ask_root_question(self, contents: str) -> Context:
         question_link = insert_raw_hypertext(contents, self.db, {})
@@ -41,8 +70,6 @@ class Scheduler(object):
         return Context(new_workspace_link, self.db)
 
     def does_action_produce_cycle(self, context: Context, action: Action) -> bool:
-        # TODO
-
         # Hm. What kind of cycles actually matter?
 
         # Budgets should circumvent this problem.
@@ -81,49 +108,62 @@ class Scheduler(object):
         # original way I wrote the scheduler, and might produce a much slower user experience
         # if the system gets big and highly automated.
 
-        # It seems possible to me that sometimes there will be very counter-intuitive examples
-        # where taking an action would produce a cycle. I can't think of any, but I'm imagining
-        # it would involve complicated use of pointers and scratchpads.
+        # It seems likely to me that there will be very counter-intuitive examples where
+        # taking an action would produce a cycle. I can't think of any as I'm writing this,
+        # but I'm imagining it would involve complicated use of pointers and scratchpads.
         
         return False
 
-    def resolve_action(self, action: Action) -> None:
-        assert self.current_context is not None
-        if self.does_action_produce_cycle(self.current_context, action):
-            raise ValueError("Action would produce a cycle in the context graph")
-        if action.predictable():
-            self.execute_predictable_action(action)
-        else:
-            self.execute_unpredictable_action(action)
+    def resolve_action(self, starting_context: Context, action: Action) -> None:
+        assert starting_context in self.active_contexts
 
-    def execute_predictable_action(self, action: Action) -> None:
-        assert self.current_context is not None
-        self.current_context, others = action.execute(self.db, self.current_context)
-        self.unbranched_actions.append(action)
-        self.branches.extend(others)
+        pending_actions = deque([(context, action)])
 
-    def execute_unpredictable_action(self, action: Action) -> None:
-        assert self.current_context is not None
+        new_fulfilments = []
+        new_contexts = []
 
-        _, branches = action.execute(self.db, self.current_context)
-        self.unbranched_actions.append(action)
+        while len(pending_actions) > 0:
+            next_context, next_action = pending_actions.popleft()
+            action.execute()
 
-        self.cache[self.last_branching_context] = self.unbranched_actions
-        self.unbranched_actions = []
+    def choose_context(self) -> Optional[Context]:
+        pass
 
-        self.branches.extend(branches)
+    def relinquish_context(self, context: Context) -> None:
+        pass
 
-        while len(self.branches) > 0 and self.branches[-1] in self.cache:
-            next_context = self.branches.pop()
-            for next_action in self.cache[next_context]:
-                successor, others = next_action.execute(self.db, next_context)
-                self.branches.extend(others)
-                if successor is None:
-                    break
-                next_context = successor
-        
-        if len(self.branches) == 0:
-            self.current_context = None
-        else:
-            self.current_context = self.branches.pop()
-            self.last_branching_context = self.current_context
+
+class Session(object):
+    def __init__(self, scheduler: Scheduler) -> None:
+        self.sched = scheduler
+         # current_context is None before and after the session is complete.
+        self.current_context: Optional[Context] = None
+
+    def __enter__(self):
+        if not self.current_context:
+            self.current_context = self.sched.acquire_context()
+        return self
+
+    def __exit__(self, *args):
+        # Handle cleanup. Things we need to do here:
+        # Tell the scheduler that we relinquish our current context.
+        if self.current_context is not None:
+            self.sched.relinquish_context(self.current_context)
+
+    def current_context(self) -> Optional[Context]:
+        return self.current_context
+
+    def act(self, action: Action) -> Optional[Context]:
+        raise NotImplementedError("Sessions must implement act()")
+
+
+class RootQuestionSession(Session):
+    # A root question session is only interested in displaying contexts
+    # whose answers have been unlocked by its root context, or contexts whose
+    # answers have been unlocked by 
+    def __init__(self, scheduler: Scheduler, question: str) -> None:
+        super().__init__(scheduler)
+
+class AimlessSession(Session):
+    # An aimless session is happy to display any context until there are none left
+    pass
