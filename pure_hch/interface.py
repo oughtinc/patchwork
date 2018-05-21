@@ -4,8 +4,10 @@ from typing import Optional
 
 import parsy
 
+from .actions import Action, AskSubquestion, Reply, Unlock, Scratch
+from .context import Context
 from .datastore import Datastore
-from .scheduling import Action, Scheduler, Context, AskSubquestion, Reply, Unlock, Scratch
+from .scheduling import Scheduler
 
 class UserInterface(cmd.Cmd):
     prompt = "> "
