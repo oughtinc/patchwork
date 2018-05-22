@@ -1,6 +1,9 @@
 # Rudimentary Pure HCH
 
-This repository contains an implementation of an [HCH](https://ai-alignment.com/humans-consulting-hch-f893f6051455) test bed. It is intended to serve as a model for a multi-user web app, and thus explicitly represents and manages all state in a data store.
+This repository contains an implementation of an
+[HCH](https://ai-alignment.com/humans-consulting-hch-f893f6051455) test bed.
+It is intended to serve as a model for a multi-user web app, and thus explicitly
+represents and manages all state in a data store.
 
 In the terms used by Ought's [taxonomy of approaches to capability
 amplification](https://ought.org/projects/factored-cognition/taxonomy),
@@ -8,7 +11,9 @@ this program implements question-answering with:
 
 * Recursion
 * Pointers
-* A weak form of reflection, in which trees of workspaces can be passed around and inspected, but actions are not reifiable and not always inferrable. Specifically, pointer unlocking actions cannot be recovered.
+* A weak form of reflection, in which trees of workspaces can be passed around and
+  inspected, but actions are not reifiable and not always inferrable. Specifically,
+  pointer unlocking actions cannot be recovered.
 * Caching (memoization)
 * Lazy evaluation
 
@@ -16,13 +21,19 @@ this program implements question-answering with:
 
 In order to use this package, you'll need at least Python 3.6 and parsy 1.2.0.
 
+You can get parsy by running `pip install -r requirements.txt`.
+
 ## Usage
 
 To begin, run
 
 ```bash
-python -m pure_hch.main
+python -m pure_hch.main [optional_database_file]
 ```
+
+The app can be used to answer simple questions. When the app starts, the user
+will be presented with a prompt to enter a "root-level question". From here on,
+the user will be presented with a sequence of “contexts”. 
 
 ### Interpreting a context
 
