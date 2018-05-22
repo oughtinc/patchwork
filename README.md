@@ -1,21 +1,16 @@
 # Rudimentary Pure HCH
 
-This repository contains an implementation of an
-[HCH](https://ai-alignment.com/humans-consulting-hch-f893f6051455) test bed.
+This repository contains an implementation of an [HCH](https://ai-alignment.com/humans-consulting-hch-f893f6051455) test bed. It is intended to serve as a model for a multi-user web app, and thus explicitly represents and manages all state in a data store.
 
-In the terms used by the
-[Ought Taxonomy of approaches to capability
+In the terms used by Ought's [taxonomy of approaches to capability
 amplification](https://ought.org/projects/factored-cognition/taxonomy),
-this program implements:
+this program implements question-answering with:
 
-* One-shot question answering
 * Recursion
 * Pointers
-* A weak form of reflection, in which workspaces can be passed around and
-   inspected, but actions are not reifiable and not always inferrable.
-   Specifically, pointer unlocking actions cannot be recovered.
-* Caching
-* Lazy Evaluation
+* A weak form of reflection, in which trees of workspaces can be passed around and inspected, but actions are not reifiable and not always inferrable. Specifically, pointer unlocking actions cannot be recovered.
+* Caching (memoization)
+* Lazy evaluation
 
 ## Setup
 
@@ -30,6 +25,7 @@ python -m pure_hch.main
 ```
 
 ### Interpreting a context
+
 At any given moment during the program's execution, you're looking at a context.
 A context can display four fields:
 
@@ -40,6 +36,7 @@ A context can display four fields:
    but the answers and workspaces used to compute those answers are not.
 
 #### Hypertext in contexts
+
 Contexts contain pointers, which can be thought of as links to pages in a web of
 hypertext. They are abstract references to data. A pointer can either
 be "locked" or "unlocked". Locked pointers appear as `$<id>`, where `<id>` is either
@@ -54,7 +51,7 @@ hypertext containing the string `Hello, world`. Hypertext can either represent
 a workspace (as in the `$w1` example), or can be "raw", representing some
 unstructured text.
 
-### Taking Actions
+### Taking actions
 
 Four actions can be taken in any context:
 1. `ask <subquestion>`: Ask a subquestion
@@ -64,7 +61,7 @@ Four actions can be taken in any context:
   the pointer `<pointer_id>` visible.
 4. `reply <response>`: Answer the question with `<response>`
 
-#### Hypertext Syntax
+#### Hypertext syntax
 
 The `ask`, `scratch`, and `reply` commands all accept hypertext as an
 argument. The hypertext you specify here is similar to the hypertext
@@ -86,7 +83,7 @@ to the second, and the answer of the second to the third, without unlocking anyt
 and without being put on hold.  When I unlock the third answer, my successor will not
 wake up until that answer is actually available.
 
-## Implementation Details
+## Implementation details
 
 The system is implemented using the following concepts. It is intended to
 serve as a model for a multi-user web app version, in which the database
@@ -102,7 +99,7 @@ while the datastore is used to keep track of both (a) what data exists, and
 When duplicate data is inserted, the address of the original data is returned.
 If a promise would be fulfilled with duplicate data, the promise is added to
 a list of aliases, such that anything that tries to refer to that promise will
-be redirected to the deduplicated data (even though their addres does not match
+be redirected to the deduplicated data (even though their address does not match
 the canonical address of that data).
 
 ### Hypertext
@@ -110,14 +107,14 @@ the canonical address of that data).
 The datastore can be seen as an analogue for an HTTP server, and its contents
 can be seen as analogues for HTML pages with references to other pages on that
 server. Hypertext equality is based on the string that it gets converted to
-when printed (with any addresses "canonicalized" (replaced by the canonical
-value of their corresponding canonical address)).
+when printed (with any addresses "canonicalized", i.e. replaced by the canonical
+value of their corresponding canonical address).
 
 #### Workspaces
 
-A workspace is a structured hypertext object, that contains pointers to the
+A workspace is a structured hypertext object that contains pointers to the
 data that's visible from a context: an optional predecessor, a question,
-a scratchpad, and a collection of subquestions with their answers and final
+a scratchpad, and a list of subquestions with their answers and final
 workspaces.
 
 ### Context
