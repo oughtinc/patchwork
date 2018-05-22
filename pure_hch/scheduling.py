@@ -145,7 +145,7 @@ class Scheduler(object):
                 raise ValueError("Action resulted in an infinite loop")
             un_automatable_contexts: List[Context] = []
             possibly_automatable_contexts = deque(self.pending_contexts)
-            possibly_automatable_contexts.extend(other_contexts)
+            possibly_automatable_contexts.extendleft(other_contexts)
 
             while len(possibly_automatable_contexts) > 0:
                 context = possibly_automatable_contexts.popleft()
