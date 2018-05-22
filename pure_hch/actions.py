@@ -15,16 +15,67 @@ class Action(object):
         # Successor context should be first if it exists.
         raise NotImplementedError("Action is pure virtual")
 
-    def predictable(self):
-        raise NotImplementedError("Action is pure virtual")
+
+# Predictability here means "the user can predict what the successor looks like based only
+# on the current workspace and the action taken." It's not very clear whether Reply should
+# count or not, since it has no successor.
+class PredictableAction(Action):
+    pass
 
 
-class AskSubquestion(Action):
+class UnpredictableAction(Action):
+    pass
+
+
+class Scratch(PredictableAction):
+    def __init__(self, scratch_text: str) -> None:
+        self.scratch_text = scratch_text
+
+    def execute(
+            self,
+            db: Datastore,
+            context: Context,
+            ) -> Tuple[Optional[Context], List[Context]]:
+
+        new_scratchpad_link = insert_raw_hypertext(
+                self.scratch_text,
+                db,
+                context.name_pointers_for_workspace(context.workspace_link, db))
+
+        current_workspace = db.dereference(context.workspace_link)
+
+        successor_workspace = Workspace(
+                current_workspace.question_link,
+                current_workspace.answer_promise,
+                current_workspace.final_workspace_promise,
+                new_scratchpad_link,
+                current_workspace.subquestions,
+                )
+
+        successor_workspace_link = db.insert(successor_workspace)
+
+        successor_workspace = db.dereference(successor_workspace_link)
+
+        new_unlocked_locations = set(context.unlocked_locations_from_workspace(
+                context.workspace_link,
+                db))
+        new_unlocked_locations.remove(context.workspace_link)
+        new_unlocked_locations.add(successor_workspace_link)
+        new_unlocked_locations.add(new_scratchpad_link)
+
+        return (
+                Context(
+                    successor_workspace_link,
+                    db,
+                    unlocked_locations=new_unlocked_locations,
+                    parent=context),
+                []
+                )
+
+
+class AskSubquestion(PredictableAction):
     def __init__(self, question_text: str) -> None:
         self.question_text = question_text
-
-    def predictable(self):
-        return True
 
     def execute(
             self,
@@ -76,16 +127,14 @@ class AskSubquestion(Action):
                 Context(
                     successor_workspace_link,
                     db,
-                    unlocked_locations=new_unlocked_locations),
-                [Context(sub_workspace_link, db)])
+                    unlocked_locations=new_unlocked_locations,
+                    parent=context),
+                [Context(sub_workspace_link, db, parent=context)])
 
 
-class Reply(Action):
+class Reply(UnpredictableAction):
     def __init__(self, reply_text: str) -> None:
         self.reply_text = reply_text
-
-    def predictable(self):
-        return False
 
     def execute(
             self,
@@ -115,7 +164,7 @@ class Reply(Action):
         else:
             workspace_successors = []
 
-        all_successors = [Context(args[0], db, args[1])
+        all_successors = [Context(args[0], db, args[1], parent=args[2])
                 for args in answer_successors + workspace_successors]
 
         return (None, all_successors)
@@ -124,9 +173,6 @@ class Reply(Action):
 class Unlock(Action):
     def __init__(self, unlock_text: str) -> None:
         self.unlock_text = unlock_text
-
-    def predictable(self):
-        return False
 
     def execute(
             self,
@@ -150,59 +196,11 @@ class Unlock(Action):
 
         new_unlocked_locations.add(pointer_address)
 
-        successor_context_args = (context.workspace_link, new_unlocked_locations)
+        successor_context_args = (context.workspace_link, new_unlocked_locations, context)
 
         if db.is_fulfilled(pointer_address):
-            return (None, [Context(successor_context_args[0], db, successor_context_args[1])])
+            return (None, [Context(successor_context_args[0], db, successor_context_args[1], parent=successor_context_args[2])])
 
         db.register_promisee(pointer_address, successor_context_args)
         return (None, [])
-
-
-class Scratch(Action):
-    def __init__(self, scratch_text: str) -> None:
-        self.scratch_text = scratch_text
-
-    def predictable(self):
-        return True
-
-    def execute(
-            self,
-            db: Datastore,
-            context: Context,
-            ) -> Tuple[Optional[Context], List[Context]]:
-
-        new_scratchpad_link = insert_raw_hypertext(
-                self.scratch_text,
-                db,
-                context.name_pointers_for_workspace(context.workspace_link, db))
-
-        current_workspace = db.dereference(context.workspace_link)
-
-        successor_workspace = Workspace(
-                current_workspace.question_link,
-                current_workspace.answer_promise,
-                current_workspace.final_workspace_promise,
-                new_scratchpad_link,
-                current_workspace.subquestions,
-                )
-
-        successor_workspace_link = db.insert(successor_workspace)
-
-        successor_workspace = db.dereference(successor_workspace_link)
-
-        new_unlocked_locations = set(context.unlocked_locations_from_workspace(
-                context.workspace_link,
-                db))
-        new_unlocked_locations.remove(context.workspace_link)
-        new_unlocked_locations.add(successor_workspace_link)
-        new_unlocked_locations.add(new_scratchpad_link)
-
-        return (
-                Context(
-                    successor_workspace_link,
-                    db,
-                    unlocked_locations=new_unlocked_locations),
-                []
-                )
 

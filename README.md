@@ -26,7 +26,8 @@ python -m pure_hch.main
 
 ### Interpreting a context
 
-A context can have four fields:
+At any given moment during the program's execution, you're looking at a context.
+A context can display four fields:
 
 1. A pointer to a predecessor workspace
 2. A pointer to a question to be answered (unlocked)
