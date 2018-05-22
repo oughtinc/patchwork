@@ -3,7 +3,8 @@ from textwrap import indent
 from typing import DefaultDict, Dict, Deque, Generator, List, Optional, Set, Tuple
 
 from .datastore import Address, Datastore
-from .hypertext import Workspace
+from .hypertext import Workspace, visit_unlocked_region
+from .text_manipulation import make_link_texts
 
 class Context(object):
     def __init__(
@@ -11,6 +12,7 @@ class Context(object):
             workspace_link: Address,
             db: Datastore,
             unlocked_locations: Optional[Set[Address]]=None,
+            parent: Optional["Context"]=None,
             ) -> None:
 
         # Unlocked locations should be in terms of the passed in workspace_link.
@@ -29,24 +31,7 @@ class Context(object):
 
         self.pointer_names, self.name_pointers = self._name_pointers(self.workspace_link, db)
         self.display = self.to_str(db)
-
-    def _map_over_unlocked_workspace(
-            self,
-            workspace_link: Address,
-            db: Datastore,
-            ) -> Generator[Address, None, None]:
-        frontier = deque([(self.workspace_link, workspace_link)])
-        seen = set(frontier)
-        while len(frontier) > 0:
-            my_link, your_link = frontier.popleft()
-            if my_link in self.unlocked_locations:
-                yield your_link
-                my_page = db.dereference(my_link)
-                your_page = db.dereference(your_link)
-                for next_links in zip(my_page.links(), your_page.links()):
-                    if next_links not in seen:
-                        frontier.append(next_links)
-                        seen.add(next_links)
+        self.parent = parent
 
     def _name_pointers(
             self,
@@ -69,7 +54,7 @@ class Context(object):
             assign(w, "$w{}".format(i))
 
         count = 0
-        for your_link in self._map_over_unlocked_workspace(workspace_link, db):
+        for your_link in visit_unlocked_region(self.workspace_link, workspace_link, db, self.unlocked_locations):
             your_page = db.dereference(your_link)
             for visible_link in your_page.links():
                 if visible_link not in pointers:
@@ -78,13 +63,12 @@ class Context(object):
 
         return pointers, backward_pointers
 
-
     def unlocked_locations_from_workspace(
             self,
             workspace_link: Address,
             db: Datastore,
             ) -> Set[Address]:
-        result = set(self._map_over_unlocked_workspace(workspace_link, db))
+        result = set(visit_unlocked_region(self.workspace_link, workspace_link, db, self.unlocked_locations))
         return result
 
     def name_pointers_for_workspace(
@@ -94,46 +78,10 @@ class Context(object):
             ) -> Dict[str, Address]:
         return self._name_pointers(workspace_link, db)[1]
 
-
     def to_str(self, db: Datastore) -> str:
-        INLINE_FMT = "[{pointer_name}: {content}]"
         CONTEXT_FMT = "{predecessor}Question: {question}\nScratchpad: {scratchpad}\nSubquestions:\n{subquestions}\n"
 
-        # We need to construct this string in topological order since pointers
-        # are substrings of other unlocked pointers. Since everything is immutable
-        # once created, we are guaranteed to have a DAG.
-        include_counts: DefaultDict[Address, int] = defaultdict(int)
-
-        for link in self._map_over_unlocked_workspace(self.workspace_link, db):
-            page = db.dereference(link)
-            for visible_link in page.links():
-                include_counts[visible_link] += 1
-
-        assert(include_counts[self.workspace_link] == 0)
-        no_incomings = deque([self.workspace_link])
-        order: List[Address] = []
-        while len(no_incomings) > 0:
-            link = no_incomings.popleft()
-            order.append(link)
-            if link in self.unlocked_locations:
-                page = db.dereference(link)
-                for outgoing_link in page.links():
-                    include_counts[outgoing_link] -= 1
-                    if include_counts[outgoing_link] == 0:
-                        no_incomings.append(outgoing_link)
-
-        link_texts: Dict[Address, str] = {}
-
-        for link in reversed(order):
-            if link == self.workspace_link:
-                continue
-            if link not in self.unlocked_locations:
-                link_texts[link] = self.pointer_names[link]
-            else:
-                page = db.dereference(link)
-                link_texts[link] = INLINE_FMT.format(
-                        pointer_name=self.pointer_names[link],
-                        content=page.to_str(display_map=link_texts))
+        link_texts = make_link_texts(self.workspace_link, db, self.unlocked_locations, self.pointer_names)
 
         subquestion_builder = []
         workspace: Workspace = db.dereference(self.workspace_link)
@@ -155,6 +103,15 @@ class Context(object):
                 question=link_texts[workspace.question_link],
                 scratchpad=link_texts[workspace.scratchpad_link],
                 subquestions=subquestions)
+
+    def is_own_ancestor(self, db: Datastore) -> bool:
+        initial_workspace = db.canonicalize(self.workspace_link)
+        context: Optional[Context] = self.parent
+        while context is not None:
+            if context == self and db.canonicalize(context.workspace_link) == initial_workspace:
+                return True
+            context = context.parent
+        return False
 
 
     def __str__(self) -> str:

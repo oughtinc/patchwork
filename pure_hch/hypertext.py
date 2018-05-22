@@ -1,11 +1,31 @@
+from collections import deque
 from textwrap import indent
-
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, Generator, List, Optional, Set, Tuple, Union
 
 from .datastore import Address, Datastore
 
 HypertextFragment = Union[Address, str]
 Subquestion = Tuple[Address, Address, Address] # question, answer, final_workspace
+
+def visit_unlocked_region(
+        template_link: Address,
+        workspace_link: Address,
+        db: Datastore,
+        unlocked_locations: Optional[Set[Address]],
+        ) -> Generator[Address, None, None]:
+    frontier = deque([(template_link, workspace_link)])
+    seen = set(frontier)
+    while len(frontier) > 0:
+        my_link, your_link = frontier.popleft()
+        if unlocked_locations is None or my_link in unlocked_locations:
+            yield your_link
+            my_page = db.dereference(my_link)
+            your_page = db.dereference(your_link)
+            for next_links in zip(my_page.links(), your_page.links()):
+                if next_links not in seen:
+                    frontier.append(next_links)
+                    seen.add(next_links)
+
 
 class Hypertext(object):
     def links(self) -> List[Address]:

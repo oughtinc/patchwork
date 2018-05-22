@@ -67,7 +67,8 @@ class Scratch(PredictableAction):
                 Context(
                     successor_workspace_link,
                     db,
-                    unlocked_locations=new_unlocked_locations),
+                    unlocked_locations=new_unlocked_locations,
+                    parent=context),
                 []
                 )
 
@@ -126,8 +127,9 @@ class AskSubquestion(PredictableAction):
                 Context(
                     successor_workspace_link,
                     db,
-                    unlocked_locations=new_unlocked_locations),
-                [Context(sub_workspace_link, db)])
+                    unlocked_locations=new_unlocked_locations,
+                    parent=context),
+                [Context(sub_workspace_link, db, parent=context)])
 
 
 class Reply(UnpredictableAction):
@@ -162,7 +164,7 @@ class Reply(UnpredictableAction):
         else:
             workspace_successors = []
 
-        all_successors = [Context(args[0], db, args[1])
+        all_successors = [Context(args[0], db, args[1], parent=args[2])
                 for args in answer_successors + workspace_successors]
 
         return (None, all_successors)
@@ -194,12 +196,11 @@ class Unlock(Action):
 
         new_unlocked_locations.add(pointer_address)
 
-        successor_context_args = (context.workspace_link, new_unlocked_locations)
+        successor_context_args = (context.workspace_link, new_unlocked_locations, context)
 
         if db.is_fulfilled(pointer_address):
-            return (None, [Context(successor_context_args[0], db, successor_context_args[1])])
+            return (None, [Context(successor_context_args[0], db, successor_context_args[1], parent=successor_context_args[2])])
 
         db.register_promisee(pointer_address, successor_context_args)
         return (None, [])
 
-SuperAction = Tuple[List[PredictableAction], UnpredictableAction]

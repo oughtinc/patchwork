@@ -5,12 +5,9 @@ from collections import defaultdict
 from typing import Any, DefaultDict, Dict, List, Set
 
 
-# REVISIT: Plausibly this should be generic over the addressed
-# content.
 class Address(object):
-    def __init__(self, db: "Datastore") -> None:
+    def __init__(self) -> None:
         self.location = uuid.uuid1()
-        self.db = db
 
     def __hash__(self) -> int:
         return hash(self.location)
@@ -46,7 +43,7 @@ class Datastore(object):
             raise KeyError("Don't have that address")
 
     def make_promise(self) -> Address:
-        address = Address(self)
+        address = Address()
         self.promises[address] = []
         return address
 
@@ -119,7 +116,7 @@ class TransactionAccumulator(Datastore):
             raise KeyError("Don't have that address")
 
     def make_promise(self) -> Address:
-        address = Address(self)
+        address = Address()
         self.new_promises[address] = []
         return address
 
@@ -151,12 +148,12 @@ class TransactionAccumulator(Datastore):
             self.resolved_promises.add(address)
         else:
             promisees = self.new_promises[address]
-            del self.promises[address]
+            del self.new_promises[address]
         return promisees
 
     def insert(self, content: Any) -> Address:
-        if content in self.canonical_addresses:
-            return self.canonical_addresses[content]
+        if content in self.new_canonical_addresses:
+            return self.new_canonical_addresses[content]
         if content in self.db.canonical_addresses:
             return self.db.canonical_addresses[content]
 

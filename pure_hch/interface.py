@@ -7,22 +7,21 @@ import parsy
 from .actions import Action, AskSubquestion, Reply, Unlock, Scratch
 from .context import Context
 from .datastore import Datastore
-from .scheduling import Scheduler
+from .scheduling import Session
 
 class UserInterface(cmd.Cmd):
     prompt = "> "
 
-    def __init__(self, db: Datastore, scheduler: Scheduler) -> None:
+    def __init__(self, session: Session) -> None:
         super().__init__()
-        self.db = db
-        self.scheduler = scheduler
-        self.initial_context = scheduler.current_context
-        assert self.initial_context is not None
-        self.answer_promise = self.db.dereference(self.initial_context.workspace_link).answer_promise
+        self.session = session
+        self.current_context = session.current_context
+        self.initial_context = self.current_context
+        assert self.current_context is not None
         self.update_prompt()
 
     def update_prompt(self) -> None:
-        self.prompt = "{}\n{}".format(str(self.scheduler.current_context), UserInterface.prompt)
+        self.prompt = "{}\n{}".format(str(self.current_context), UserInterface.prompt)
 
     def precmd(self, line: str) -> str:
         print("-" * 80)
@@ -37,7 +36,13 @@ class UserInterface(cmd.Cmd):
 
     def _do(self, prefix: str, action: Action) -> bool:
         try:
-            self.scheduler.resolve_action(action)
+            result = self.session.act(action)
+            if isinstance(result, Context):
+                self.current_context = result
+            else:
+                print("The initial context was:\n {}".format(self.initial_context))
+                print("The final answer is:\n {}".format(result))
+                return True
         except parsy.ParseError as p:
             print("Your command was not parsed properly. Review the README for syntax.")
             print(p)
@@ -47,12 +52,6 @@ class UserInterface(cmd.Cmd):
         except KeyError as k:
             print("Encountered an error with your command: ")
             print(k)
-
-        if self.db.is_fulfilled(self.answer_promise):
-            print("The initial context was:\n {}".format(self.initial_context))
-            print("The final answer is:\n {}".format(self.db.dereference(self.answer_promise)))
-            return True
-
         return False
 
     def do_ask(self, arg: str) -> bool:
