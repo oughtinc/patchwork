@@ -1,4 +1,4 @@
-# Rudimentary Pure HCH
+# Patchwork
 
 This repository contains an implementation of an
 [HCH](https://ai-alignment.com/humans-consulting-hch-f893f6051455) test bed.
@@ -28,7 +28,7 @@ You can get parsy by running `pip install -r requirements.txt`.
 To begin, run
 
 ```bash
-python -m pure_hch.main [optional_database_file]
+python -m patchwork.main [optional_database_file]
 ```
 
 The app can be used to answer simple questions. When the app starts, the user
