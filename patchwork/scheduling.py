@@ -120,7 +120,7 @@ class Scheduler(object):
         self.memoizer = Memoizer()
         self.automators: List[Automator] = [self.memoizer]
 
-    def ask_root_question(self, contents: str) -> Optional[Context]:
+    def ask_root_question(self, contents: str) -> Context:
         # How root!
         question_link = insert_raw_hypertext(contents, self.db, {})
         answer_link = self.db.make_promise()
@@ -130,11 +130,11 @@ class Scheduler(object):
         new_workspace_link = self.db.insert(new_workspace)
         initial_context = Context(new_workspace_link, self.db)
         self.active_contexts.add(initial_context)
+        result = initial_context
         if self.memoizer.can_handle(initial_context):
-            result = self.resolve_action(initial_context, self.memoizer.handle(initial_context))
-        else:
-            result = initial_context
-
+             resolution = self.resolve_action(initial_context, self.memoizer.handle(initial_context))
+             if resolution is not None:
+                 result = resolution
         self.active_contexts.add(result)
         return result
 
@@ -226,9 +226,19 @@ class RootQuestionSession(Session):
         self.current_context: Context = scheduler.ask_root_question(question)
         self.final_answer_promise = scheduler.db.dereference(self.current_context.workspace_link).answer_promise
 
+    def is_answer_complete(self, address: Address):
+        # TODO This should not be necessary; it should be based on choose_context_to_advance_promise.
+        if not self.sched.db.is_fulfilled(address):
+            return False
+        for sublink in self.sched.db.dereference(address).links():
+            if not self.is_answer_complete(sublink):
+                return False
+        return True
+
+
     def act(self, action: Action) -> Union[Context, str]:
         resulting_context = self.sched.resolve_action(self.current_context, action)
-        if self.sched.db.is_fulfilled(self.final_answer_promise):
+        if self.is_answer_complete(self.final_answer_promise):
             return make_link_texts(self.final_answer_promise, self.sched.db)[self.final_answer_promise]
 
         if resulting_context is None:
