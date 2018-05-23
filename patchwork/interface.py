@@ -1,4 +1,5 @@
 import cmd
+from traceback import print_exc
 
 from typing import Optional
 
@@ -48,10 +49,10 @@ class UserInterface(cmd.Cmd):
             print(p)
         except ValueError as v:
             print("Encountered an error with your command: ")
-            print(v)
+            print_exc()
         except KeyError as k:
             print("Encountered an error with your command: ")
-            print(k)
+            print_exc()
         return False
 
     def do_ask(self, arg: str) -> bool:

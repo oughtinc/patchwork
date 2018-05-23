@@ -120,7 +120,7 @@ class Scheduler(object):
         self.memoizer = Memoizer()
         self.automators: List[Automator] = [self.memoizer]
 
-    def ask_root_question(self, contents: str) -> Context:
+    def ask_root_question(self, contents: str) -> Optional[Context]:
         # How root!
         question_link = insert_raw_hypertext(contents, self.db, {})
         answer_link = self.db.make_promise()
@@ -128,7 +128,13 @@ class Scheduler(object):
         scratchpad_link = insert_raw_hypertext("", self.db, {})
         new_workspace = Workspace(question_link, answer_link, final_workspace_link, scratchpad_link, [])
         new_workspace_link = self.db.insert(new_workspace)
-        result = Context(new_workspace_link, self.db)
+        initial_context = Context(new_workspace_link, self.db)
+        self.active_contexts.add(initial_context)
+        if self.memoizer.can_handle(initial_context):
+            result = self.resolve_action(initial_context, self.memoizer.handle(initial_context))
+        else:
+            result = initial_context
+
         self.active_contexts.add(result)
         return result
 
@@ -141,8 +147,8 @@ class Scheduler(object):
         
         try:
             successor, other_contexts = action.execute(transaction, starting_context) 
-            if successor is not None and self.memoizer.can_handle(successor):
-                raise ValueError("Action resulted in an infinite loop")
+            # if successor is not None and self.memoizer.can_handle(successor):
+            #     raise ValueError("Action resulted in an infinite loop")
             un_automatable_contexts: List[Context] = []
             possibly_automatable_contexts = deque(self.pending_contexts)
             possibly_automatable_contexts.extendleft(other_contexts)
