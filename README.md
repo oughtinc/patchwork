@@ -1,5 +1,7 @@
 # Patchwork
 
+![](sorted_list.gif)
+
 This repository contains an implementation of an
 [HCH](https://ai-alignment.com/humans-consulting-hch-f893f6051455) test bed.
 It is intended to serve as a model for a multi-user web app, and thus explicitly
