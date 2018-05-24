@@ -120,7 +120,7 @@ class Scheduler(object):
         self.memoizer = Memoizer()
         self.automators: List[Automator] = [self.memoizer]
 
-    def ask_root_question(self, contents: str) -> Context:
+    def ask_root_question(self, contents: str) -> Tuple[Context, Address]:
         # How root!
         question_link = insert_raw_hypertext(contents, self.db, {})
         answer_link = self.db.make_promise()
@@ -128,15 +128,13 @@ class Scheduler(object):
         scratchpad_link = insert_raw_hypertext("", self.db, {})
         new_workspace = Workspace(question_link, answer_link, final_workspace_link, scratchpad_link, [])
         new_workspace_link = self.db.insert(new_workspace)
-        initial_context = Context(new_workspace_link, self.db)
-        self.active_contexts.add(initial_context)
-        result = initial_context
-        if self.memoizer.can_handle(initial_context):
-             resolution = self.resolve_action(initial_context, self.memoizer.handle(initial_context))
-             if resolution is not None:
-                 result = resolution
+        result = Context(new_workspace_link, self.db)
+        answer_link = self.db.dereference(result.workspace_link).answer_promise
         self.active_contexts.add(result)
-        return result
+        while self.memoizer.can_handle(result):
+            result = self.resolve_action(result, self.memoizer.handle(result))
+
+        return result, answer_link
 
     def resolve_action(self, starting_context: Context, action: Action) -> Optional[Context]:
         # NOTE: There's a lot of wasted work in here for the sake of rolling back cycle-driven mistakes.
@@ -147,8 +145,6 @@ class Scheduler(object):
         
         try:
             successor, other_contexts = action.execute(transaction, starting_context) 
-            # if successor is not None and self.memoizer.can_handle(successor):
-            #     raise ValueError("Action resulted in an infinite loop")
             un_automatable_contexts: List[Context] = []
             possibly_automatable_contexts = deque(self.pending_contexts)
             possibly_automatable_contexts.extendleft(other_contexts)
@@ -223,22 +219,26 @@ class RootQuestionSession(Session):
     # sessions in a real app.
     def __init__(self, scheduler: Scheduler, question: str) -> None:
         super().__init__(scheduler)
-        self.current_context: Context = scheduler.ask_root_question(question)
-        self.final_answer_promise = scheduler.db.dereference(self.current_context.workspace_link).answer_promise
+        self.current_context, self.final_answer_promise = scheduler.ask_root_question(question)
 
-    def is_answer_complete(self, address: Address):
-        # TODO This should not be necessary; it should be based on choose_context_to_advance_promise.
+    def is_fulfilled(self, address: Optional[Address]=None):
+        if address is None:
+            address = self.final_answer_promise
+
         if not self.sched.db.is_fulfilled(address):
             return False
-        for sublink in self.sched.db.dereference(address).links():
-            if not self.is_answer_complete(sublink):
+        for subaddress in self.sched.db.dereference(address).links():
+            if not self.is_fulfilled(address=subaddress):
                 return False
         return True
 
-
     def act(self, action: Action) -> Union[Context, str]:
+        if self.is_fulfilled(self.final_answer_promise): # Don't do any more work
+            return make_link_texts(self.final_answer_promise, self.sched.db)[self.final_answer_promise]
+
         resulting_context = self.sched.resolve_action(self.current_context, action)
-        if self.is_answer_complete(self.final_answer_promise):
+
+        if self.is_fulfilled():
             return make_link_texts(self.final_answer_promise, self.sched.db)[self.final_answer_promise]
 
         if resulting_context is None:

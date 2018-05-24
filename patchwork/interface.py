@@ -18,7 +18,6 @@ class UserInterface(cmd.Cmd):
         self.session = session
         self.current_context = session.current_context
         self.initial_context = self.current_context
-        assert self.current_context is not None
         self.update_prompt()
 
     def update_prompt(self) -> None:
