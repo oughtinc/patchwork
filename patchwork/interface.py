@@ -1,6 +1,7 @@
 import cmd
-from traceback import print_exc
+import os
 
+from traceback import print_exc
 from typing import Optional
 
 import parsy
@@ -24,7 +25,7 @@ class UserInterface(cmd.Cmd):
         self.prompt = "{}\n{}".format(str(self.current_context), UserInterface.prompt)
 
     def precmd(self, line: str) -> str:
-        print("-" * 80)
+        os.system("cls" if os.name == "nt" else "clear")
         return line
 
     def emptyline(self) -> bool:
