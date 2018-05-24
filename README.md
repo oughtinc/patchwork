@@ -19,6 +19,15 @@ this program implements question-answering with:
 * Caching (memoization)
 * Lazy evaluation
 
+The general idea here is that this is a system for breaking problems down into
+sub-problems. Given a starting problem, a human (H) takes actions that can either
+create sub-problems (contexts), unlock data (pointers), track some internal or
+strategic state (scratchpads), or solve the problem (reply to the question).
+
+We make the assumption that H is a pure function from contexts to actions. This
+allows us to perform automation to avoid making unnecessary calls to H, as
+seen in the "is this list sorted" demo gif above.
+
 ## Setup
 
 In order to use this package, you'll need at least Python 3.6 and parsy 1.2.0.
@@ -153,3 +162,44 @@ actions, and which context to show to which user and when. It also
 manages automation, by remembering contexts and taking its own
 actions under the assumption that the user is a pure function from
 context to action.
+
+## Future Work
+
+This system is not entirely ready for prime-time. If you play with it for long,
+you are likely to uncover bugs. Furthermore, the abstractions used here are probably
+not powerful enough to build a complete HCH system.
+
+### "True" Laziness
+
+The current system _may_ happen to avoid work that isn't necessary; however,
+it doesn't track which work is actually required. It would be fairly straightforward
+to add the ability to avoid doing any unnecessary work.
+
+### Budgets
+
+The current system does not support budgets. This naively results in cases where
+infinite automation loops are possible. While we've avoided those here by implementing
+an explicit check against them, strictly decreasing budgets would eliminate the
+need for this complexity.
+
+### Exceptional Cases
+
+The current design allows the user to pass around answer pointers that have not been
+completed yet. This is normally fine, but imagine that the system is somehow unable
+to complete the request - maybe the question was malformed, or maybe the user didn't
+have enough budget. There needs to be a way to indicate that an answer has "failed" -
+otherwise, you'll end up with "What is 7 * [I can't answer that question]?"
+
+One possibility would be to have each subquestion generate two possible resulting
+contexts: a "success" and a "failure". The system could then instantiate only the more
+likely of the two successors; doubling back to instantiate the other (and invalidate
+work that depended on it) if it turns out to have been wrong. This is similar to how
+branch prediction works in CPUs.
+
+### Multiple Sessions and Users
+
+While the basic idea of user sessions is visible in the code as it stands today,
+this is hacky and would probably not stand up to implementing a multi-user
+frontend immediately. There are several questions that would need to be answered
+in order to successfully manage multiple users; for example, what should happen if
+a root question is already being dispatched by another user?
