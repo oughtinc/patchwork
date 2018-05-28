@@ -219,7 +219,20 @@ class RootQuestionSession(Session):
     # sessions in a real app.
     def __init__(self, scheduler: Scheduler, question: str) -> None:
         super().__init__(scheduler)
-        self.current_context, self.final_answer_promise = scheduler.ask_root_question(question)
+        resulting_context, self.final_answer_promise = scheduler.ask_root_question(question)
+        if resulting_context is None and not self.is_fulfilled():
+            self.current_context = self._choose_next_context()
+        else:
+            self.current_context = resulting_context
+
+    def _choose_next_context(self):
+        resulting_context = self.sched.choose_context_to_advance_promise(self.final_answer_promise) or \
+                            self.sched.choose_arbitrary_context()
+
+        if resulting_context is None:
+            raise ValueError("Ended up with no work to do but also no answers")
+
+        return resulting_context
 
     def is_fulfilled(self, address: Optional[Address]=None):
         if address is None:
@@ -241,12 +254,5 @@ class RootQuestionSession(Session):
         if self.is_fulfilled():
             return make_link_texts(self.final_answer_promise, self.sched.db)[self.final_answer_promise]
 
-        if resulting_context is None:
-            resulting_context = self.sched.choose_context_to_advance_promise(self.final_answer_promise)
-        if resulting_context is None:
-            resulting_context = self.sched.choose_arbitrary_context()
-        if resulting_context is not None:
-            self.current_context = resulting_context
-            return self.current_context
-        raise ValueError("Ended up with no work to do but also no answers")
-
+        self.current_context = resulting_context or self._choose_next_context()
+        return self.current_context
