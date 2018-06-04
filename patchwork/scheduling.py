@@ -33,47 +33,48 @@ from .text_manipulation import insert_raw_hypertext, make_link_texts
 # form of actions.
 
 # Some stuff about cycle detection:
-    # Hm. What kind of cycles actually matter?
 
-    # Budgets should circumvent this problem.
+# Hm. What kind of cycles actually matter?
 
-    # It's actually fine to produce a subquestion that _looks_ identical to the 
-    # parent question, and in fact this is one way automation can work at all.
-    # It's only not fine to produce a subquestion that _is_ the same as a parent
-    # question, down to... what, exactly? Obviously ending up with a workspace
-    # who's its own ancestor in the subquestion graph is bad. But you can end up
-    # with this situation in annoying ways.
+# Budgets should circumvent this problem.
 
-    # `A -> B [1] -> C -> B [2]` is fine.
-    # `A -> B -> C -> B` is not.
+# It's actually fine to produce a subquestion that _looks_ identical to the 
+# parent question, and in fact this is one way automation can work at all.
+# It's only not fine to produce a subquestion that _is_ the same as a parent
+# question, down to... what, exactly? Obviously ending up with a workspace
+# who's its own ancestor in the subquestion graph is bad. But you can end up
+# with this situation in annoying ways.
 
-    # But imagine you actually get `A -> (B, C)`, `B -> C`, and `C -> B`. You don't
-    # want to privelege `B -> C` or `C -> B` over the other. But in some sense you
-    # have to: You can't block actions, or else you have to sometimes show a user a
-    # random error message.
+# `A -> B [1] -> C -> B [2]` is fine.
+# `A -> B -> C -> B` is not.
 
-    # So you have to present the temporally _second_ creator of `B -> C` or `C -> B`
-    # the error message immediately (this is an unfortunate but necessary "side channel").
-    # The problem that _this_ produces is that `C -> B` may be created _automatically_.
+# But imagine you actually get `A -> (B, C)`, `B -> C`, and `C -> B`. You don't
+# want to privilege `B -> C` or `C -> B` over the other. But in some sense you
+# have to: You can't block actions, or else you have to sometimes show a user a
+# random error message.
 
-    # Imagine that you have previously seen that `A -> B [(locked) 1] -> C`. So you stored
-    # that `B $1` produces `ask C`. But now you see that `C -> B [(locked) 2]`.
-    # `B [(locked) 2]` is a different workspace from `B $1`, so the naive workspace-based
-    # checking doesn't notice anything wrong until it tries to look at actions produced by
-    # `C`, at which time it's too late (since C has already been scheduled). There is now
-    # no way out of the trap.
+# So you have to present the temporally _second_ creator of `B -> C` or `C -> B`
+# the error message immediately (this is an unfortunate but necessary "side channel").
+# The problem that _this_ produces is that `C -> B` may be created _automatically_.
 
-    # I _think_ that you instead need to do the checking based on contexts: When you perform
-    # an action, if you did all the automated steps this action implies, would you end up
-    # with any copies of your starting workspace?
+# Imagine that you have previously seen that `A -> B [(locked) 1] -> C`. So you stored
+# that `B $1` produces `ask C`. But now you see that `C -> B [(locked) 2]`.
+# `B [(locked) 2]` is a different workspace from `B $1`, so the naive workspace-based
+# checking doesn't notice anything wrong until it tries to look at actions produced by
+# `C`, at which time it's too late (since C has already been scheduled). There is now
+# no way out of the trap.
 
-    # This implies a sort of automation-first approach that is pretty different from the
-    # original way I wrote the scheduler, and might produce a much slower user experience
-    # if the system gets big and highly automated.
+# I _think_ that you instead need to do the checking based on contexts: When you perform
+# an action, if you did all the automated steps this action implies, would you end up
+# with any copies of your starting workspace?
 
-    # Yeah, I think the best thing to do is basically do all possible automation up front inside
-    # a transaction, as soon as an action is taken, letting bits throw exceptions if a cycle
-    # would be created. When that happens, we can discard the transaction; otherwise we commit it.
+# This implies a sort of automation-first approach that is pretty different from the
+# original way I wrote the scheduler, and might produce a much slower user experience
+# if the system gets big and highly automated.
+
+# Yeah, I think the best thing to do is basically do all possible automation up front inside
+# a transaction, as soon as an action is taken, letting bits throw exceptions if a cycle
+# would be created. When that happens, we can discard the transaction; otherwise we commit it.
 
 
 class Automator(object):
