@@ -23,7 +23,7 @@ def main(argv):
     print("What is your root question?")
     with RootQuestionSession(sched, input("> ")) as sess:
         if sess.is_fulfilled():
-            print("That question has already been answered: ")
+            print("Could answer question immediately based on cached data: ")
             print(make_link_texts(sess.final_answer_promise, db)[sess.final_answer_promise])
         else:
             ui = UserInterface(sess)
