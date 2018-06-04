@@ -9,10 +9,12 @@ from .text_manipulation import make_link_texts
 
 def main(argv):
     if len(argv) > 1:
+        fn = argv[1]
         try:
-            with open(argv[1], 'rb') as f:
+            with open(fn, 'rb') as f:
                 db, sched = pickle.load(f)
         except FileNotFoundError:
+            print("File '{}' not found, creating...".format(fn))
             db = Datastore()
             sched = Scheduler(db)
     else:
