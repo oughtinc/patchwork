@@ -1,5 +1,3 @@
-"""Basic Functional HCH"""
-
 import pickle
 import sys
 
