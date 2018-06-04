@@ -210,7 +210,7 @@ class Session(object):
             self.sched.relinquish_context(self.current_context)
 
     def act(self, action: Action) -> Union[Context, str]:
-        raise NotImplementedError("Sessions must implement __iter__()")
+        raise NotImplementedError("Sessions must implement act()")
 
 
 class RootQuestionSession(Session):
