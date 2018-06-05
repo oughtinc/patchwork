@@ -175,6 +175,14 @@ The current system _may_ happen to avoid work that isn't necessary; however,
 it doesn't track which work is actually required. It would be fairly straightforward
 to add the ability to avoid doing any unnecessary work.
 
+### "True" Reflection
+
+The current system allows trees of workspaces to be passed around, and each workspace
+includes a link to its predecessor, so some actions can be inferred. However, for all
+actions to be inferred (including pointer unlocking), we would probably need to reify
+the history of contexts in a way that's accessible through a pointer. This might in 
+turn imply that contexts and actions should be instances of hypertext.
+
 ### Budgets
 
 The current system does not support budgets. This naively results in cases where
