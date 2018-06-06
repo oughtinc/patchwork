@@ -223,3 +223,5 @@ unroll the computation $c1 and reuse some of the work. However, there is probabl
 some work to be done to make this as convenient as 
 [incremental improvement through edits](https://ought.org/projects/factored-cognition/taxonomy#persistence).
 
+Re-asking a question with increased budget and re-asking with a pointer to a slightly
+different object are important special cases.
