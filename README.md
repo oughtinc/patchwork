@@ -169,12 +169,6 @@ This system is not entirely ready for prime-time. If you play with it for long,
 you are likely to uncover bugs. Furthermore, the abstractions used here are probably
 not powerful enough to build a complete HCH system.
 
-### "True" Laziness
-
-The current system _may_ happen to avoid work that isn't necessary; however,
-it doesn't track which work is actually required. It would be fairly straightforward
-to add the ability to avoid doing any unnecessary work.
-
 ### "True" Reflection
 
 The current system allows trees of workspaces to be passed around, and each workspace

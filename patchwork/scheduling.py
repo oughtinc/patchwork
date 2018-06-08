@@ -178,16 +178,12 @@ class Scheduler(object):
             self.memoizer.forget(starting_context)
             raise
 
-    def choose_arbitrary_context(self) -> Optional[Context]:
-        if len(self.pending_contexts) > 0:
-            choice = self.pending_contexts.popleft()
-            self.active_contexts.add(choice)
-            return choice
-        return None
-
     def choose_context_to_advance_promise(self, promise: Address) -> Optional[Context]:
-        # TODO: Hm. How can we do this?
-        return self.choose_arbitrary_context()
+        choice = next(c for c in self.pending_contexts
+                      if c.can_advance_promise(self.db, promise))
+        self.pending_contexts.remove(choice)
+        self.active_contexts.add(choice)
+        return choice
 
     def relinquish_context(self, context: Context) -> None:
         self.pending_contexts.append(context)
@@ -221,25 +217,26 @@ class RootQuestionSession(Session):
     def __init__(self, scheduler: Scheduler, question: str) -> None:
         super().__init__(scheduler)
         resulting_context, self.final_answer_promise = scheduler.ask_root_question(question)
+        self.promise_to_advance = self.final_answer_promise
         if resulting_context is None and not self.is_fulfilled():
             self.current_context = self._choose_next_context()
         else:
             self.current_context = resulting_context
 
-    def _choose_next_context(self):
-        resulting_context = self.sched.choose_context_to_advance_promise(self.final_answer_promise) or \
-                            self.sched.choose_arbitrary_context()
+    def _choose_next_context(self) -> Context:
+        resulting_context = self.sched.choose_context_to_advance_promise(self.promise_to_advance)
 
         if resulting_context is None:
             raise ValueError("Ended up with no work to do but also no answers")
 
         return resulting_context
 
-    def is_fulfilled(self, address: Optional[Address]=None):
+    def is_fulfilled(self, address: Optional[Address]=None) -> bool:
         if address is None:
             address = self.final_answer_promise
 
         if not self.sched.db.is_fulfilled(address):
+            self.promise_to_advance = address
             return False
         for subaddress in self.sched.db.dereference(address).links():
             if not self.is_fulfilled(address=subaddress):
