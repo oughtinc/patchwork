@@ -178,7 +178,8 @@ class Scheduler(object):
             self.memoizer.forget(starting_context)
             raise
 
-    def choose_context_to_advance_promise(self, promise: Address) -> Optional[Context]:
+    def choose_context(self, promise: Address) -> Context:
+        """Return a context that can advance ``promise``."""
         choice = next(c for c in self.pending_contexts
                       if c.can_advance_promise(self.db, promise))
         self.pending_contexts.remove(choice)
@@ -216,41 +217,57 @@ class RootQuestionSession(Session):
     # sessions in a real app.
     def __init__(self, scheduler: Scheduler, question: str) -> None:
         super().__init__(scheduler)
-        resulting_context, self.final_answer_promise = scheduler.ask_root_question(question)
+        self.current_context, self.final_answer_promise = \
+            scheduler.ask_root_question(question)
         self.promise_to_advance = self.final_answer_promise
-        if resulting_context is None and not self.is_fulfilled():
-            self.current_context = self._choose_next_context()
+        self.final_answer = None
+        self.act()
+
+    def choose_promise(self, root: Address) -> Address:
+        """Return unfulfilled promise from hypertext tree with root ``root``.
+
+        Parameters
+        ----------
+        root
+            Address pointing at hypertext or a promise of it.
+        """
+        if not self.sched.db.is_fulfilled(root):
+            return root
+
+        return next((self.choose_promise(child)
+                     for child in self.sched.db.dereference(root).links()),
+                    None)
+
+    # Note: This method is ugly. It's confusing that the action is optional, and
+    # the union return type increases complexity downstream. However, I couldn't
+    # find a better solution and I have to get on with my work. Feel free to
+    # refactor when you feel inspired.
+    def act(self, action: Optional[Action]=None) -> Union[Context, str]:
+        """Take ``action`` in the current context.
+
+        Taking an action entails:
+        1) Execute the action and perhaps advance to the returned context.
+        2) If the final answer is complete, return the final answer.
+        3) If the (new) current context is None, schedule one of the pending
+           contexts.
+
+        If no ``action`` is given, skip the first step.
+        """
+        if action:
+            resulting_context = self.sched.resolve_action(self.current_context,
+                                                          action)
         else:
-            self.current_context = resulting_context
+            resulting_context = self.current_context
 
-    def _choose_next_context(self) -> Context:
-        resulting_context = self.sched.choose_context_to_advance_promise(self.promise_to_advance)
+        promise_to_advance = self.choose_promise(self.final_answer_promise)
+        if promise_to_advance is None:  # Ie. everything was answered.
+            self.final_answer = make_link_texts(
+                                    self.final_answer_promise,
+                                    self.sched.db)[self.final_answer_promise]
+            return self.final_answer
 
-        if resulting_context is None:
-            raise ValueError("Ended up with no work to do but also no answers")
+        self.current_context = resulting_context \
+                               or self.sched.choose_context(promise_to_advance)
 
-        return resulting_context
-
-    def is_fulfilled(self, address: Optional[Address]=None) -> bool:
-        if address is None:
-            address = self.final_answer_promise
-
-        if not self.sched.db.is_fulfilled(address):
-            self.promise_to_advance = address
-            return False
-        for subaddress in self.sched.db.dereference(address).links():
-            if not self.is_fulfilled(address=subaddress):
-                return False
-        return True
-
-    def act(self, action: Action) -> Union[Context, str]:
-        if self.is_fulfilled(self.final_answer_promise): # Don't do any more work
-            return make_link_texts(self.final_answer_promise, self.sched.db)[self.final_answer_promise]
-
-        resulting_context = self.sched.resolve_action(self.current_context, action)
-
-        if self.is_fulfilled():
-            return make_link_texts(self.final_answer_promise, self.sched.db)[self.final_answer_promise]
-
-        self.current_context = resulting_context or self._choose_next_context()
         return self.current_context
+
