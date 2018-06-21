@@ -53,8 +53,6 @@ class Scratch(PredictableAction):
 
         successor_workspace_link = db.insert(successor_workspace)
 
-        successor_workspace = db.dereference(successor_workspace_link)
-
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
                 context.workspace_link,
                 db))
@@ -114,7 +112,6 @@ class AskSubquestion(PredictableAction):
                 )
 
         successor_workspace_link = db.insert(successor_workspace)
-        successor_workspace = db.dereference(successor_workspace_link)
 
         new_unlocked_locations = set(context.unlocked_locations_from_workspace(
             context.workspace_link, db))
