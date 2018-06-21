@@ -47,7 +47,6 @@ class Context(object):
 
         workspace_root = db.dereference(workspace_link)
         for i, subquestion in reversed(list(enumerate(workspace_root.subquestions, start=1))):
-            # Pyre doesn't like tuple destructuring in loops apparently.
             q, a, w = subquestion
             assign(q, "$q{}".format(i))
             assign(a, "$a{}".format(i))

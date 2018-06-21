@@ -6,7 +6,6 @@ from .hypertext import Workspace
 from .text_manipulation import create_raw_hypertext, insert_raw_hypertext
 
 class Action(object):
-    # despite the declaration, no lawsuits please
     def execute(
             self,
             db: Datastore,
