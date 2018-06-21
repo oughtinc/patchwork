@@ -1,5 +1,3 @@
-"""Basic Functional HCH"""
-
 import pickle
 import sys
 
@@ -11,10 +9,12 @@ from .text_manipulation import make_link_texts
 
 def main(argv):
     if len(argv) > 1:
+        fn = argv[1]
         try:
-            with open(argv[1], 'rb') as f:
+            with open(fn, 'rb') as f:
                 db, sched = pickle.load(f)
         except FileNotFoundError:
+            print("File '{}' not found, creating...".format(fn))
             db = Datastore()
             sched = Scheduler(db)
     else:
@@ -23,7 +23,7 @@ def main(argv):
     print("What is your root question?")
     with RootQuestionSession(sched, input("> ")) as sess:
         if sess.is_fulfilled():
-            print("That question has already been answered: ")
+            print("Could answer question immediately based on cached data: ")
             print(make_link_texts(sess.final_answer_promise, db)[sess.final_answer_promise])
         else:
             ui = UserInterface(sess)

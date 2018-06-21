@@ -175,6 +175,14 @@ The current system _may_ happen to avoid work that isn't necessary; however,
 it doesn't track which work is actually required. It would be fairly straightforward
 to add the ability to avoid doing any unnecessary work.
 
+### "True" Reflection
+
+The current system allows trees of workspaces to be passed around, and each workspace
+includes a link to its predecessor, so some actions can be inferred. However, for all
+actions to be inferred (including pointer unlocking), we would probably need to reify
+the history of contexts in a way that's accessible through a pointer. This might in 
+turn imply that contexts and actions should be instances of hypertext.
+
 ### Budgets
 
 The current system does not support budgets. This naively results in cases where
@@ -203,3 +211,17 @@ this is hacky and would probably not stand up to implementing a multi-user
 frontend immediately. There are several questions that would need to be answered
 in order to successfully manage multiple users; for example, what should happen if
 a root question is already being dispatched by another user?
+
+### Simulating edits to questions
+
+Suppose you asked a question which resulted in a big tree of sub-computations. You
+(or rather, your successor) then realized that there was a mistake and that you 
+should have asked the question differently. In that case, reflection might help
+a bit - you can ask "What is the answer to $q2 given that we previously asked
+about $q1 which resulted in computation $c1?". The agents answering $q2 can then
+unroll the computation $c1 and reuse some of the work. However, there is probably
+some work to be done to make this as convenient as 
+[incremental improvement through edits](https://ought.org/projects/factored-cognition/taxonomy#persistence).
+
+Re-asking a question with increased budget and re-asking with a pointer to a slightly
+different object are important special cases.
