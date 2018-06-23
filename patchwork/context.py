@@ -113,20 +113,18 @@ class Context(object):
             context = context.parent
         return False
 
-    def can_fulfill_promise(self, db: Datastore, promise: Address) -> bool:
-        workspace = db.dereference(self.workspace_link)
-        return promise in [workspace.answer_promise,
-                           workspace.final_workspace_promise]
-
     def can_advance_promise(self, db: Datastore, promise: Address) -> bool:
-        workspace = db.dereference(self.workspace_link)
-        promisee_contexts = \
-            (Context(args[0], db)
-             for args in db.get_promisees(workspace.answer_promise)
-                    + db.get_promisees(workspace.final_workspace_promise))
+        ws_promises = db.dereference(self.workspace_link).promises
 
-        return self.can_fulfill_promise(db, promise) or \
-               any(pc.can_advance_promise(db, promise)
+        # If self can fulfill the promise
+        if promise in ws_promises:
+            return True
+
+        # Otherwise find out if one of the promisees can fulfill the promise
+        promisee_contexts = (Context(args[0], db)
+                             for p in ws_promises
+                             for args in db.get_promisees(p))
+        return any(pc.can_advance_promise(db, promise)
                    for pc in promisee_contexts)
 
     def __str__(self) -> str:
