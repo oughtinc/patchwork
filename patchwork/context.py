@@ -6,6 +6,22 @@ from .datastore import Address, Datastore
 from .hypertext import Workspace, visit_unlocked_region
 from .text_manipulation import make_link_texts
 
+
+def _can_advance_promise(db: Datastore, wsaddr: Address, promise: Address) \
+        -> bool:
+    """See :py:meth:`Context.can_advance_promise`."""
+    ws_promises = db.dereference(wsaddr).promises
+
+    if promise in ws_promises:
+        return True
+
+    promisee_wsaddrs = (args[0]  # = workspace link of promisee context
+                        for p in ws_promises
+                        for args in db.get_promisees(p))
+    return any(_can_advance_promise(db, pwsa, promise)
+               for pwsa in promisee_wsaddrs)
+
+
 class Context(object):
     def __init__(
             self,
@@ -113,19 +129,21 @@ class Context(object):
             context = context.parent
         return False
 
+    # Note: The definition is mutually recursive, but we can implement it
+    # with simple recursion, because we can obtain workspaces from the
+    # datastore without constructing contexts.
     def can_advance_promise(self, db: Datastore, promise: Address) -> bool:
-        ws_promises = db.dereference(self.workspace_link).promises
+        """Determine if ``self`` can advance ``promise``.
 
-        # If self can fulfill the promise
-        if promise in ws_promises:
-            return True
+        A context c can advance a promise p iff its workspace can advance p.
 
-        # Otherwise find out if one of the promisees can fulfill the promise
-        promisee_contexts = (Context(args[0], db)
-                             for p in ws_promises
-                             for args in db.get_promisees(p))
-        return any(pc.can_advance_promise(db, promise)
-                   for pc in promisee_contexts)
+        A workspace w can advance a promise p iff
+        - p is one of w's promises P(w) or
+        - one of the promisees of the promises P(w) can advance P.
+        The promisees of P(w) are contexts.
+        """
+        return _can_advance_promise(db, self.workspace_link, promise)
+
 
     def __str__(self) -> str:
         return self.display
