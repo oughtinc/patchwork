@@ -220,7 +220,14 @@ class RootQuestionSession(Session):
         self.current_context, self.root_answer_promise = \
             scheduler.ask_root_question(question)
         self.root_answer = None
-        self.act()
+
+        promise_to_advance = self.choose_promise(self.root_answer_promise)
+        if promise_to_advance is None:  # Ie. everything was answered.
+            self.format_root_answer()
+        else:
+            self.current_context = \
+                self.current_context \
+                or self.sched.choose_context(promise_to_advance)
 
     def choose_promise(self, root: Address) -> Address:
         """Return unfulfilled promise from hypertext tree with root ``root``.
@@ -228,7 +235,7 @@ class RootQuestionSession(Session):
         Parameters
         ----------
         root
-            Address pointing at hypertext or a promise of it.
+            Address pointing at hypertext or a promise of hypertext.
 
         Note
         ----
@@ -244,6 +251,19 @@ class RootQuestionSession(Session):
           (from the perspective of the replier), return the promise that $a2
           points to. This is done recursively, so if $a2 is resolved to
           something that points to another promise p, return p.
+
+        Purpose
+        -------
+        A hypertext object is *complete* when all its pointers are unlocked and
+        the hypertext objects they point to are complete. Ie. "Looks like a
+        [penguin]." and "What is your quest?" are complete, but "What is the
+        capital of $1?" is not.
+
+        After the root answer promise is resolved, the root answer might not yet
+        be complete. The asker of the root question wants a complete answer, but
+        she can't interact with it to unlock pointers. Instead, this method
+        finds any promises that the root answer points to. The caller can then
+        schedule contexts to resolve these promises.
         """
         if not self.sched.db.is_fulfilled(root):
             return root
@@ -252,45 +272,22 @@ class RootQuestionSession(Session):
                      for child in self.sched.db.dereference(root).links()),
                     None)
 
-    # Note: This method is ugly. It's confusing that the action is optional, and
-    # the union return type increases complexity downstream. However, I couldn't
-    # find a better solution and I have to get on with my work. Feel free to
-    # refactor when you feel inspired.
-    def act(self, action: Optional[Action]=None) -> Union[Context, str]:
-        """Take ``action`` in the current context.
+    def format_root_answer(self) -> str:
+        """Format the root answer with all its pointers unlocked."""
+        self.root_answer = make_link_texts(
+                                self.root_answer_promise,
+                                self.sched.db)[self.root_answer_promise]
+        return self.root_answer
 
-        A hypertext object is *complete* when all its pointers are unlocked and
-        the hypertext objects they point to are complete. Ie., "Looks like a
-        [penguin]." and "What is your quest?" are complete, but "What is the
-        capital of $1?" is not.
-
-        The asker of the root question cannot interact with the answer, so
-        before returning the root answer, this method has to make sure that it
-        is complete.
-
-        Taking an action entails:
-        1) Execute the action and perhaps advance to the returned context.
-        2) If the root answer is complete, return the root answer.
-        3) If the (new) current context is ``None``, schedule one of the pending
-           contexts that is needed to complete the root answer.
-
-        If no ``action`` is given, skip the first step.
-        """
-        if action:
-            resulting_context = self.sched.resolve_action(self.current_context,
-                                                          action)
-        else:
-            resulting_context = self.current_context
+    def act(self, action: Action) -> Union[Context, str]:
+        resulting_context = self.sched.resolve_action(self.current_context,
+                                                      action)
 
         promise_to_advance = self.choose_promise(self.root_answer_promise)
         if promise_to_advance is None:  # Ie. everything was answered.
-            self.root_answer = make_link_texts(
-                                    self.root_answer_promise,
-                                    self.sched.db)[self.root_answer_promise]
-            return self.root_answer
+            return self.format_root_answer()
 
         self.current_context = resulting_context \
                                or self.sched.choose_context(promise_to_advance)
 
         return self.current_context
-
