@@ -229,6 +229,21 @@ class RootQuestionSession(Session):
         ----------
         root
             Address pointing at hypertext or a promise of it.
+
+        Note
+        ----
+        Don't confuse the root node of a hypertext tree with the root question.
+
+        Examples
+        --------
+        * If no reply was given to the root question yet, return the root
+          question promise.
+        * If the reply to the root question was given and is "To seek the
+          Holy Grail.", return ``None``, because there is nothing left to do.
+        * If the reply to the root question was given and is "Looks like a $a2."
+          (from the perspective of the replier), return the promise that $a2
+          points to. This is done recursively, so if $a2 is resolved to
+          something that points to another promise p, return p.
         """
         if not self.sched.db.is_fulfilled(root):
             return root
@@ -244,11 +259,20 @@ class RootQuestionSession(Session):
     def act(self, action: Optional[Action]=None) -> Union[Context, str]:
         """Take ``action`` in the current context.
 
+        A hypertext object is *complete* when all its pointers are unlocked and
+        the hypertext objects they point to are complete. Ie., "Looks like a
+        [penguin]." and "What is your quest?" are complete, but "What is the
+        capital of $1?" is not.
+
+        The asker of the root question cannot interact with the answer, so
+        before returning the root answer, this method has to make sure that it
+        is complete.
+
         Taking an action entails:
         1) Execute the action and perhaps advance to the returned context.
-        2) If the final answer is complete, return the final answer.
-        3) If the (new) current context is None, schedule one of the pending
-           contexts.
+        2) If the root answer is complete, return the root answer.
+        3) If the (new) current context is ``None``, schedule one of the pending
+           contexts that is needed to complete the root answer.
 
         If no ``action`` is given, skip the first step.
         """

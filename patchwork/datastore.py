@@ -135,9 +135,6 @@ class TransactionAccumulator(Datastore):
         else:
             raise ValueError("address not a promise")
 
-    # Note: This doesn't look elegant, but it's better than ``return
-    # self.promises.get(address) …``, which would silently ignore wrong
-    # addresses.
     def get_promisees(self, address: Address) -> List[Any]:
         if address in self.resolved_promises:
             return []
