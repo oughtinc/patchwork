@@ -48,7 +48,7 @@ class TestBasic(unittest.TestCase):
             self.assertIn("$a3: 1761669", str(context))
 
             result = sess.act(Reply("1761669"))
-            self.assertIsNotNone(sess.final_answer)
+            self.assertIsNotNone(sess.root_answer)
             self.assertIn("1761669", result)
 
 

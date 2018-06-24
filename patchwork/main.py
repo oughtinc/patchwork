@@ -22,9 +22,9 @@ def main(argv):
         sched = Scheduler(db)
     print("What is your root question?")
     with RootQuestionSession(sched, input("> ")) as sess:
-        if sess.final_answer:
+        if sess.root_answer:
             print("Could answer question immediately based on cached data: ")
-            print(sess.final_answer)
+            print(sess.root_answer)
         else:
             ui = UserInterface(sess)
             ui.cmdloop()

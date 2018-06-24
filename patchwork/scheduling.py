@@ -217,10 +217,9 @@ class RootQuestionSession(Session):
     # sessions in a real app.
     def __init__(self, scheduler: Scheduler, question: str) -> None:
         super().__init__(scheduler)
-        self.current_context, self.final_answer_promise = \
+        self.current_context, self.root_answer_promise = \
             scheduler.ask_root_question(question)
-        self.promise_to_advance = self.final_answer_promise
-        self.final_answer = None
+        self.root_answer = None
         self.act()
 
     def choose_promise(self, root: Address) -> Address:
@@ -259,12 +258,12 @@ class RootQuestionSession(Session):
         else:
             resulting_context = self.current_context
 
-        promise_to_advance = self.choose_promise(self.final_answer_promise)
+        promise_to_advance = self.choose_promise(self.root_answer_promise)
         if promise_to_advance is None:  # Ie. everything was answered.
-            self.final_answer = make_link_texts(
-                                    self.final_answer_promise,
-                                    self.sched.db)[self.final_answer_promise]
-            return self.final_answer
+            self.root_answer = make_link_texts(
+                                    self.root_answer_promise,
+                                    self.sched.db)[self.root_answer_promise]
+            return self.root_answer
 
         self.current_context = resulting_context \
                                or self.sched.choose_context(promise_to_advance)
