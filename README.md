@@ -190,7 +190,19 @@ infinite automation loops are possible. While we've avoided those here by implem
 an explicit check against them, strictly decreasing budgets would eliminate the
 need for this complexity.
 
-### Exceptional Cases
+Once budgets are in place, we'll need to consider the interaction between budgets and
+automation. Since budgets are part of the workspace state, differences in budgets
+correspond result in cache-based automation treating the corresponding contexts as
+different. This reduces the number of cache hits substantially. This could be addressed
+by
+
+1. Only showing budgets rounded to the nearest power of 10. (This is what Paul did in some implementations.)
+2. Hiding the budget behind a pointer so that users can ask questions about it (e.g., "What is the nearest power of 10 for budget #b")
+3. Using a more general prediction scheme instead of cache-based automation, so that some contexts are treated as sufficiently similar for automation to apply even if the budgets differ.
+
+We should also reconsider using VOI-based budgets.
+
+### Exceptional Cases and Speculative Execution
 
 The current design allows the user to pass around answer pointers that have not been
 completed yet. This is normally fine, but imagine that the system is somehow unable
@@ -204,6 +216,22 @@ likely of the two successors; doubling back to instantiate the other (and invali
 work that depended on it) if it turns out to have been wrong. This is similar to how
 branch prediction works in CPUs.
 
+A generalization of this idea is to do speculative execution on the text of a
+message. I.e., if the answer is commonly "The answer is #1", maybe we can just
+predict that the answer has this shape (without filling in #1) and if we do the
+computation and it turns out to be different, we can double back to go with the
+actual response. (This may be easier if we have edits or otherwise strong reuse
+of computation.)
+
+In addition to doing speculative execution on the answer from a sub-question, we
+can also do speculative execution for pointer expansions. If we have a lazy pointer
+#1, we can predict what its value will be and go with that, later updating it if
+we do the computation and it turns out different.
+
+It would be good to better understand how speculative execution and full 
+question-answer prediction (as in distillation) relate. Can these be built using
+the same shared technology
+
 ### Multiple Sessions and Users
 
 While the basic idea of user sessions is visible in the code as it stands today,
@@ -212,7 +240,7 @@ frontend immediately. There are several questions that would need to be answered
 in order to successfully manage multiple users; for example, what should happen if
 a root question is already being dispatched by another user?
 
-### Simulating edits to questions
+### Edits
 
 Suppose you asked a question which resulted in a big tree of sub-computations. You
 (or rather, your successor) then realized that there was a mistake and that you 
@@ -225,3 +253,7 @@ some work to be done to make this as convenient as
 
 Re-asking a question with increased budget and re-asking with a pointer to a slightly
 different object are important special cases.
+
+If it is not the case that edits can be simulated well in a system where questions
+and pointer values are immutable, we should consider the pros and cons of allowing such 
+edits.
