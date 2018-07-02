@@ -255,5 +255,5 @@ Re-asking a question with increased budget and re-asking with a pointer to a sli
 different object are important special cases.
 
 If it is not the case that edits can be simulated well in a system where questions
-and pointer values are immutable, we should consider the pros and cons of allowing such 
-edits.
+and pointer values are immutable, we should reconsider the pros and cons of allowing
+actual edits.
