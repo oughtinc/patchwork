@@ -192,9 +192,9 @@ need for this complexity.
 
 Once budgets are in place, we'll need to consider the interaction between budgets and
 automation. Since budgets are part of the workspace state, differences in budgets
-correspond result in cache-based automation treating the corresponding contexts as
-different. This reduces the number of cache hits substantially. This could be addressed
-by
+result in cache-based automation treating the corresponding contexts as different. 
+This reduces the number of cache hits substantially. This could be addressed
+by:
 
 1. Only showing budgets rounded to the nearest power of 10. (This is what Paul did in some implementations.)
 2. Hiding the budget behind a pointer so that users can ask questions about it (e.g., "What is the nearest power of 10 for budget #b")
