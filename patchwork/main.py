@@ -22,9 +22,9 @@ def main(argv):
         sched = Scheduler(db)
     print("What is your root question?")
     with RootQuestionSession(sched, input("> ")) as sess:
-        if sess.is_fulfilled():
+        if sess.root_answer:
             print("Could answer question immediately based on cached data: ")
-            print(make_link_texts(sess.final_answer_promise, db)[sess.final_answer_promise])
+            print(sess.root_answer)
         else:
             ui = UserInterface(sess)
             ui.cmdloop()

@@ -84,6 +84,7 @@ class Workspace(Hypertext):
         self.question_link = question_link
         self.answer_promise = answer_promise
         self.final_workspace_promise = final_workspace_promise
+        self.promises = [answer_promise, final_workspace_promise]
         self.scratchpad_link = scratchpad_link
         self.subquestions = subquestions
         self.predecessor_link = predecessor_link

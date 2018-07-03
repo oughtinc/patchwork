@@ -178,16 +178,13 @@ class Scheduler(object):
             self.memoizer.forget(starting_context)
             raise
 
-    def choose_arbitrary_context(self) -> Optional[Context]:
-        if len(self.pending_contexts) > 0:
-            choice = self.pending_contexts.popleft()
-            self.active_contexts.add(choice)
-            return choice
-        return None
-
-    def choose_context_to_advance_promise(self, promise: Address) -> Optional[Context]:
-        # TODO: Hm. How can we do this?
-        return self.choose_arbitrary_context()
+    def choose_context(self, promise: Address) -> Context:
+        """Return a context that can advance ``promise``."""
+        choice = next(c for c in self.pending_contexts
+                      if c.can_advance_promise(self.db, promise))
+        self.pending_contexts.remove(choice)
+        self.active_contexts.add(choice)
+        return choice
 
     def relinquish_context(self, context: Context) -> None:
         self.pending_contexts.append(context)
@@ -220,40 +217,77 @@ class RootQuestionSession(Session):
     # sessions in a real app.
     def __init__(self, scheduler: Scheduler, question: str) -> None:
         super().__init__(scheduler)
-        resulting_context, self.final_answer_promise = scheduler.ask_root_question(question)
-        if resulting_context is None and not self.is_fulfilled():
-            self.current_context = self._choose_next_context()
+        self.current_context, self.root_answer_promise = \
+            scheduler.ask_root_question(question)
+        self.root_answer = None
+
+        promise_to_advance = self.choose_promise(self.root_answer_promise)
+        if promise_to_advance is None:  # Ie. everything was answered.
+            self.format_root_answer()
         else:
-            self.current_context = resulting_context
+            self.current_context = \
+                self.current_context \
+                or self.sched.choose_context(promise_to_advance)
 
-    def _choose_next_context(self):
-        resulting_context = self.sched.choose_context_to_advance_promise(self.final_answer_promise) or \
-                            self.sched.choose_arbitrary_context()
+    def choose_promise(self, root: Address) -> Address:
+        """Return unfulfilled promise from hypertext tree with root ``root``.
 
-        if resulting_context is None:
-            raise ValueError("Ended up with no work to do but also no answers")
+        Parameters
+        ----------
+        root
+            Address pointing at hypertext or a promise of hypertext.
 
-        return resulting_context
+        Note
+        ----
+        Don't confuse the root node of a hypertext tree with the root question.
 
-    def is_fulfilled(self, address: Optional[Address]=None):
-        if address is None:
-            address = self.final_answer_promise
+        Examples
+        --------
+        * If no reply was given to the root question yet, return the root
+          question promise.
+        * If the reply to the root question was given and is "To seek the
+          Holy Grail.", return ``None``, because there is nothing left to do.
+        * If the reply to the root question was given and is "Looks like a $a2."
+          (from the perspective of the replier), return the promise that $a2
+          points to. This is done recursively, so if $a2 is resolved to
+          something that points to another promise p, return p.
 
-        if not self.sched.db.is_fulfilled(address):
-            return False
-        for subaddress in self.sched.db.dereference(address).links():
-            if not self.is_fulfilled(address=subaddress):
-                return False
-        return True
+        Purpose
+        -------
+        A hypertext object is *complete* when all its pointers are unlocked and
+        the hypertext objects they point to are complete. Ie. "Looks like a
+        [penguin]." and "What is your quest?" are complete, but "What is the
+        capital of $1?" is not.
+
+        After the root answer promise is resolved, the root answer might not yet
+        be complete. The asker of the root question wants a complete answer, but
+        she can't interact with it to unlock pointers. Instead, this method
+        finds any promises that the root answer points to. The caller can then
+        schedule contexts to resolve these promises.
+        """
+        if not self.sched.db.is_fulfilled(root):
+            return root
+
+        return next((self.choose_promise(child)
+                     for child in self.sched.db.dereference(root).links()),
+                    None)
+
+    def format_root_answer(self) -> str:
+        """Format the root answer with all its pointers unlocked."""
+        self.root_answer = make_link_texts(
+                                self.root_answer_promise,
+                                self.sched.db)[self.root_answer_promise]
+        return self.root_answer
 
     def act(self, action: Action) -> Union[Context, str]:
-        if self.is_fulfilled(self.final_answer_promise): # Don't do any more work
-            return make_link_texts(self.final_answer_promise, self.sched.db)[self.final_answer_promise]
+        resulting_context = self.sched.resolve_action(self.current_context,
+                                                      action)
 
-        resulting_context = self.sched.resolve_action(self.current_context, action)
+        promise_to_advance = self.choose_promise(self.root_answer_promise)
+        if promise_to_advance is None:  # Ie. everything was answered.
+            return self.format_root_answer()
 
-        if self.is_fulfilled():
-            return make_link_texts(self.final_answer_promise, self.sched.db)[self.final_answer_promise]
+        self.current_context = resulting_context \
+                               or self.sched.choose_context(promise_to_advance)
 
-        self.current_context = resulting_context or self._choose_next_context()
         return self.current_context
