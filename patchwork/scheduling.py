@@ -1,13 +1,10 @@
-import logging
+from collections import deque
+from typing import Deque, Dict, List, Optional, Set, Tuple, Union
 
-from collections import defaultdict, deque
-from textwrap import indent
-from typing import Callable, DefaultDict, Deque, Dict, Generator, List, Optional, Set, Tuple, Union
-
-from .actions import Action, PredictableAction, UnpredictableAction
+from .actions import Action
 from .context import Context
 from .datastore import Address, Datastore, TransactionAccumulator
-from .hypertext import Hypertext, Workspace
+from .hypertext import Workspace
 
 from .text_manipulation import insert_raw_hypertext, make_link_texts
 
