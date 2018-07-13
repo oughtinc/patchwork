@@ -1,15 +1,25 @@
-import logging
+from collections import deque
+from typing import Deque, Dict, Iterator, List, Optional, Set, Tuple, TypeVar, \
+    Union
 
-from collections import defaultdict, deque
-from textwrap import indent
-from typing import Callable, DefaultDict, Deque, Dict, Generator, List, Optional, Set, Tuple, Union
-
-from .actions import Action, PredictableAction, UnpredictableAction
+from .actions import Action
 from .context import Context
 from .datastore import Address, Datastore, TransactionAccumulator
-from .hypertext import Hypertext, Workspace
+from .hypertext import Workspace
 
 from .text_manipulation import insert_raw_hypertext, make_link_texts
+
+
+# Credits: Adapted from first_true in itertools docs.
+T = TypeVar('T')
+VT = TypeVar('VT')
+def next_truthy(iterator: Iterator[T], default: VT) -> Union[T, VT]:
+    """Return the next truthy value in ``iterator``.
+
+    If no truthy value is found, return ``default``.
+    """
+    return next(filter(None, iterator), default)
+
 
 # What is the scheduler's job, what is the automator's job, and what is the session's job?
 # Well, it seems like the session should know which contexts are "active", at least, and
@@ -229,7 +239,7 @@ class RootQuestionSession(Session):
                 self.current_context \
                 or self.sched.choose_context(promise_to_advance)
 
-    def choose_promise(self, root: Address) -> Address:
+    def choose_promise(self, root: Address) -> Optional[Address]:
         """Return unfulfilled promise from hypertext tree with root ``root``.
 
         Parameters
@@ -268,9 +278,9 @@ class RootQuestionSession(Session):
         if not self.sched.db.is_fulfilled(root):
             return root
 
-        return next((self.choose_promise(child)
-                     for child in self.sched.db.dereference(root).links()),
-                    None)
+        return next_truthy((self.choose_promise(child)
+                            for child in self.sched.db.dereference(root).links()),
+                           None)
 
     def format_root_answer(self) -> str:
         """Format the root answer with all its pointers unlocked."""

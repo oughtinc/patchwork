@@ -88,3 +88,15 @@ class TestBasic(unittest.TestCase):
         with RootQuestionSession(sched, "Root?") as sess:
             sess.act(AskSubquestion("Sub1?"))
             sess.act(Unlock("$w1"))
+
+
+    def testUnlockedLockedPointer(self):
+        """Test whether root reply with an unlocked and a locked pointer works.
+        """
+
+        db = Datastore()
+        sched = Scheduler(db)
+
+        with RootQuestionSession(sched, "Root?") as sess:
+            sess.act(AskSubquestion("Sub1?"))
+            sess.act(Reply("$q1 $a1"))
