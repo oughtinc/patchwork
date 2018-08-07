@@ -96,20 +96,25 @@ class Automator(object):
 
 
 class Memoizer(Automator):
+    """A memoizer for H's actions.
+
+    This memoizer learns H's mapping ``str(Context) → Action`` and can be called
+    instead of H for all string representations of contexts that it has seen.
+    """
     def __init__(self):
-        self.cache: Dict[Context, Action] = {}
+        self.cache: Dict[str, Action] = {}
 
     def remember(self, context: Context, action: Action):
-        self.cache[context] = action
+        self.cache[str(context)] = action
 
     def forget(self, context: Context):
-        del self.cache[context]
+        del self.cache[str(context)]
 
     def can_handle(self, context: Context) -> bool:
-        return context in self.cache
+        return str(context) in self.cache
 
     def handle(self, context: Context) -> Action:
-        return self.cache[context]
+        return self.cache[str(context)]
 
 
 class Scheduler(object):

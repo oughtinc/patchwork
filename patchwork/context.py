@@ -151,8 +151,10 @@ class Context(object):
         return hash(str(self))
 
     def __eq__(self, other: object) -> bool:
-        if type(other) is not Context:
-            return False
-        return str(other) == str(self)
+        if not isinstance(other, Context):
+            return NotImplemented
+        return self.workspace_link == other.workspace_link \
+            and self.unlocked_locations == other.unlocked_locations \
+            and self.parent == other.parent
 
 
