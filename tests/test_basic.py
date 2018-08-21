@@ -93,10 +93,33 @@ class TestBasic(unittest.TestCase):
     def testUnlockedLockedPointer(self):
         """Test whether root reply with an unlocked and a locked pointer works.
         """
-
         db = Datastore()
         sched = Scheduler(db)
 
         with RootQuestionSession(sched, "Root?") as sess:
             sess.act(AskSubquestion("Sub1?"))
             sess.act(Reply("$q1 $a1"))
+
+
+    def testEqualStringRepresentation(self):
+        """Test processing of contexts with equal string representation.
+
+        If two contexts have the same string representation that includes a
+        locked pointer, make sure:
+
+        * That none of the contexts gets dropped.
+        * That when a reply is given in the first context, the
+          :py:class:`patchwork.Memoizer` correctly outputs the same reply in
+          the second context.
+        """
+        db = Datastore()
+        sched = Scheduler(db)
+
+        with RootQuestionSession(sched, "Bicycle Repair Man, but how?") as sess:
+            sess.act(AskSubquestion("Is it a [stockbroker]?"))
+            sess.act(AskSubquestion("Is it a [quantity surveyor]?"))
+            sess.act(Reply("$a1 $a2"))
+            sess.act(Reply("NO! It's Bicycle Repair Man."))
+            self.assertEqual("[[NO! It's Bicycle Repair Man.]"
+                             " [NO! It's Bicycle Repair Man.]]",
+                             sess.root_answer)
