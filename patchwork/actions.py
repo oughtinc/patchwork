@@ -1,6 +1,6 @@
 from typing import List, Optional, Tuple
 
-from .context import Context
+from .context import Context, DryContext
 from .datastore import Datastore
 from .hypertext import Workspace
 from .text_manipulation import create_raw_hypertext, insert_raw_hypertext
@@ -160,8 +160,8 @@ class Reply(UnpredictableAction):
         else:
             workspace_successors = []
 
-        all_successors = [Context(args[0], db, args[1], parent=args[2])
-                for args in answer_successors + workspace_successors]
+        all_successors = [Context.from_dry(dry_context, db)
+                for dry_context in answer_successors + workspace_successors]
 
         return (None, all_successors)
 
@@ -192,11 +192,12 @@ class Unlock(Action):
 
         new_unlocked_locations.add(pointer_address)
 
-        successor_context_args = (context.workspace_link, new_unlocked_locations, context)
+        dry_successor_context = DryContext(context.workspace_link,
+                                           new_unlocked_locations, context)
 
         if db.is_fulfilled(pointer_address):
-            return (None, [Context(successor_context_args[0], db, successor_context_args[1], parent=successor_context_args[2])])
+            return (None, [Context.from_dry(dry_successor_context, db)])
 
-        db.register_promisee(pointer_address, successor_context_args)
+        db.register_promisee(pointer_address, dry_successor_context)
         return (None, [])
 

@@ -2,9 +2,19 @@ from collections import defaultdict, deque
 from textwrap import indent
 from typing import DefaultDict, Dict, Deque, Generator, List, Optional, Set, Tuple
 
+import attr
+
 from .datastore import Address, Datastore
 from .hypertext import Workspace, visit_unlocked_region
 from .text_manipulation import make_link_texts
+
+
+@attr.s(frozen=True)
+class DryContext(object):
+    """Stores the arguments for reconstituting a Context in the future."""
+    workspace_link = attr.ib(type=Address)
+    unlocked_locations = attr.ib(type=Optional[Set[Address]])
+    parent = attr.ib(type=Optional["Context"])
 
 
 def _can_advance_promise(db: Datastore, wsaddr: Address, promise: Address) \
@@ -15,9 +25,9 @@ def _can_advance_promise(db: Datastore, wsaddr: Address, promise: Address) \
     if promise in ws_promises:
         return True
 
-    promisee_wsaddrs = (args[0]  # = workspace link of promisee context
+    promisee_wsaddrs = (dry_context.workspace_link
                         for p in ws_promises
-                        for args in db.get_promisees(p))
+                        for dry_context in db.get_promisees(p))
     return any(_can_advance_promise(db, pwsa, promise)
                for pwsa in promisee_wsaddrs)
 
@@ -48,6 +58,14 @@ class Context(object):
         self.pointer_names, self.name_pointers = self._name_pointers(self.workspace_link, db)
         self.display = self.to_str(db)
         self.parent = parent
+
+    def to_dry(self) -> DryContext:
+        return DryContext(self.workspace_link, self.unlocked_locations, self.parent)
+
+    @classmethod
+    def from_dry(cls, dry_context: DryContext, db: Datastore) -> "Context":
+        return cls(dry_context.workspace_link, db,
+                   dry_context.unlocked_locations, dry_context.parent)
 
     def _name_pointers(
             self,
